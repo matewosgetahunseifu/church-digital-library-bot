@@ -3,6 +3,7 @@ from threading import Thread
 from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+
 app = Flask(__name__)
 
 
@@ -21,6 +22,7 @@ def keep_alive():
   t.daemon = True
   t.start()
 
+
 BOT_TOKEN = os.environ.get(
     'BOT_TOKEN', '8777005011:AAHi7FXjLXk9QkRBzylmzsLqYj7dRC1PR_Y'
 )
@@ -29,10 +31,13 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # Admin Username (ለደህንነት የተገደበ)
 ADMIN_USERNAME = 'Sealilenemariyammsle12we19'
 
-# 3. Database (የግእዝ መማሪያ መጽሐፍት ዝርዝር)
+# 3. Database (የመጽሐፍት ዝርዝር)
 GEEZ_GUIDE_BOOKS = [
     {
-        'title': '1. መጽሐፈ ሰዋስው ወግስ ወመዝገበ ቃላት ሐዲስ (አለቃ ኪዳነ ወልድ ክፍሌ)',
+        'title': (
+            '1. መጽሐፈ ሰዋስው ወግስ ወመዝገበ ቃላት ሐዲስ (አለቃ ኪዳነ ወልድ'
+            ' ክፍሌ)'
+        ),
         'file_id': (
             'BQACAgQAAxkBAAOiapLEYe5R4ZxJ8_3PQZ-SHO6NA4sAAqofAAI12zhQV3FkwrOJJtc9BA'
         ),
@@ -127,6 +132,48 @@ GEEZ_GUIDE_BOOKS = [
             'BQACAgQAAxkBAAO9apLOThplHgQeqctpal2rVuqMU-8AAq8cAAIe9uFQcwlbPLpGfUc9BA'
         ),
     },
+]
+
+GEEZ_AMHARIC_BIBLE_BOOKS = [
+    {
+        'title': '1. ኦሪት ዘፍጥረት አንድምታ',
+        'file_id': (
+            'BQACAgQAAxkBAAPoapL5-j4Y4yKee0lyFZlMHif5UoAAAgcKAAKjPElSpWxXt7rSOxk9BA'
+        ),
+    },
+    {
+        'title': '2. ኦሪት ዘፀአት አንድምታ',
+        'file_id': (
+            'BQACAgQAAxkBAAPpapL5-mx2OLB_jMKwjJx8isE-LRAAAggKAAKjPElSdkt4uS3PouI9BA'
+        ),
+    },
+    {
+        'title': '3. ኦሪት ዘሌዋውያን አንድምታ',
+        'file_id': (
+            'BQACAgQAAxkBAAPqapL5-mUjkfP8bzTvar9D5ZmjeIwAAvUKAAL6HClR9oG7Bfn__tI9BA'
+        ),
+    },
+    {
+        'title': '4. ኦሪት ዘኍልቅ አንድምታ',
+        'file_id': (
+            'BQACAgQAAxkBAAPrapL5-vSTNfOEAAEE0CwlPjz-oH1cAAIKCgACozxJUstPvw26Lpm9PQQ'
+        ),
+    },
+    {
+        'title': '5. ኦሪት ዘዳግም አንድምታ',
+        'file_id': (
+            'BQACAgQAAxkBAAPsapL5-qt3Lcu5lWpCIB8LZ9ly_V8AAgsKAAKjPElSKmH6OAPSIR49BA'
+        ),
+    },
+]
+
+GEEZ_BIBLE_BOOKS = [
+    {
+        'title': '1. ፭ቱ መጽሐፈ ኦሪት ብራና አንድምታ',
+        'file_id': (
+            'BQACAgQAAxkBAAP4apL8OXANqEqvyGn7V4Lk_C1rDygAAn0JAAIWA9hQayRhNPpVNvE9BA'
+        ),
+    }
 ]
 
 # 4. Keyboards Generation Functions
@@ -266,8 +313,42 @@ def get_geez_guide_books_keyboard():
   )
   return markup
 
-# 5. Handlers & Bot Logic
 
+# 4.b የግእዝ-አማርኛ የመጽሐፍ ቅዱስ ክፍል ዝርዝር
+def get_geez_amharic_bible_books_keyboard():
+  markup = InlineKeyboardMarkup(row_width=1)
+  for index, book in enumerate(GEEZ_AMHARIC_BIBLE_BOOKS):
+    markup.add(
+        InlineKeyboardButton(
+            book['title'], callback_data=f'get_ga_bible_book_{index}'
+        )
+    )
+  markup.add(
+      InlineKeyboardButton(
+          '🔙 ወደ ኋላ ይመለሱ', callback_data='back_to_lang_geez_amharic'
+      )
+  )
+  return markup
+
+
+# 4.c የግእዝ የመጽሐፍ ቅዱስ ክፍል ዝርዝር
+def get_geez_bible_books_keyboard():
+  markup = InlineKeyboardMarkup(row_width=1)
+  for index, book in enumerate(GEEZ_BIBLE_BOOKS):
+    markup.add(
+        InlineKeyboardButton(
+            book['title'], callback_data=f'get_gz_bible_book_{index}'
+        )
+    )
+  markup.add(
+      InlineKeyboardButton(
+          '🔙 ወደ ኋላ ይመለሱ', callback_data='back_to_lang_geez'
+      )
+  )
+  return markup
+
+
+# 5. Handlers & Bot Logic
 
 
 @bot.message_handler(commands=['start', 'help'])
@@ -325,7 +406,9 @@ def handle_feedback(message):
       parse_mode='Markdown',
   )
 
+
 # 6. Callback Queries (Inline Keyboard Event Handling)
+
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -370,7 +453,10 @@ def handle_callback(call):
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text='📖 **የግእዝ ቋንቋ መመሪያ (መማሪያ መጽሐፍት)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
+        text=(
+            '📖 **የግእዝ ቋንቋ መመሪያ (መማሪያ መጽሐፍት)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን'
+            ' መጽሐፍ ይምረጡ፦'
+        ),
         reply_markup=get_geez_guide_books_keyboard(),
         parse_mode='Markdown',
     )
@@ -396,7 +482,7 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-  # 3. ወደ ቋንቋ መምረጫ መመለሻ 
+  # 3. ወደ ቋንቋ መምረጫ መመለሻ
   elif data.startswith('back_to_lang_'):
     lang_code = data.replace('back_to_lang_', '')
     if lang_code == 'english':
@@ -435,12 +521,50 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-  # 5. መጽሐፍት ማውረጃና ዝርዝር
+  # 5. የመጽሐፍ ቅዱስ ክፍል ሲነካ (የነበሩትን መጽሐፍት ማሳያ)
+  elif data == 'cat_geez_amharic_bible':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text='📖 **የመጽሐፍ ቅዱስ ክፍል (ግእዝ-አማርኛ)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
+        reply_markup=get_geez_amharic_bible_books_keyboard(),
+        parse_mode='Markdown',
+    )
+
+  elif data == 'cat_geez_bible':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text='📖 **የመጽሐፍ ቅዱስ ክፍል (ግእዝ)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
+        reply_markup=get_geez_bible_books_keyboard(),
+        parse_mode='Markdown',
+    )
+
+  # 6. መጽሐፍት ማውረጃና ዝርዝር
   elif data.startswith('get_geez_book_'):
     index = int(data.split('_')[-1])
     book = GEEZ_GUIDE_BOOKS[index]
     bot.send_message(
-        call.message.chat.id, f"ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n\"{book['title']}\"\n\nመልካም ንባብ ይሁንሎት! 📖✨"
+        call.message.chat.id,
+        f'ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n"{book["title"]}"\n\nመልካም ንባብ ይሁንሎት! 📖✨',
+    )
+    bot.send_document(call.message.chat.id, book['file_id'])
+
+  elif data.startswith('get_ga_bible_book_'):
+    index = int(data.split('_')[-1])
+    book = GEEZ_AMHARIC_BIBLE_BOOKS[index]
+    bot.send_message(
+        call.message.chat.id,
+        f'ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n"{book["title"]}"\n\nመልካም ንባብ ይሁንሎት! 📖✨',
+    )
+    bot.send_document(call.message.chat.id, book['file_id'])
+
+  elif data.startswith('get_gz_bible_book_'):
+    index = int(data.split('_')[-1])
+    book = GEEZ_BIBLE_BOOKS[index]
+    bot.send_message(
+        call.message.chat.id,
+        f'ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n"{book["title"]}"\n\nመልካም ንባብ ይሁንሎት! 📖✨',
     )
     bot.send_document(call.message.chat.id, book['file_id'])
 
@@ -451,9 +575,11 @@ def handle_callback(call):
         'Please select the book you would like to read:\n\n*(No books added to'
         ' this section yet)*'
         if is_eng
-        else 'እባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦\n\n*(በዚህ ክፍል እስካሁን የገቡ መጽሐፍት የሉም)*'
+        else (
+            'እባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦\n\n*(በዚህ ክፍል እስካሁን የገቡ መጽሐፍት'
+            ' የሉም)*'
+        )
     )
-    back_btn_text = '🔙 Go Back' if is_eng else '🔙 ወደ ኋላ ይመለሱ'
 
     markup = InlineKeyboardMarkup()
     markup.add(
@@ -467,6 +593,7 @@ def handle_callback(call):
         reply_markup=markup,
         parse_mode='Markdown',
     )
+
 
 # 7. Document Handler (ለAdmin ብቻ የተገደበ)
 
@@ -489,10 +616,10 @@ def handle_document(message):
         'መጽሐፍ ለማስገባት ጥቆማ ካለዎት እባክዎ በ Feedback መስመር ያድርሱን።',
     )
 
+
 # 8. App Launch
 
 if __name__ == '__main__':
   keep_alive()
   print('Bot is starting...')
   bot.infinity_polling(timeout=10, long_polling_timeout=5)
-  #comment
