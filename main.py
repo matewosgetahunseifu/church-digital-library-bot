@@ -34,13 +34,13 @@ BOT_TOKEN = os.environ.get(
 )
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# የአንተ የቴሌግራም Username (ለደህንነት)
+# Admin Username (ለደህንነት የተገደበ)
 ADMIN_USERNAME = 'Sealilenemariyammsle12we19'
 
 # ----------------------------------------------------
 # 3. Database (የግእዝ መማሪያ መጽሐፍት ዝርዝር)
 # ----------------------------------------------------
-GEEZ_BOOKS = [
+GEEZ_GUIDE_BOOKS = [
     {
         'title': '1. መጽሐፈ ሰዋስው ወግስ ወመዝገበ ቃላት ሐዲስ (አለቃ ኪዳነ ወልድ ክፍሌ)',
         'file_id': (
@@ -140,7 +140,7 @@ GEEZ_BOOKS = [
 ]
 
 # ----------------------------------------------------
-# 4. Keyboards (የቁልፎች አደረጃጀት)
+# 4. Keyboards Generation Functions
 # ----------------------------------------------------
 
 
@@ -152,11 +152,17 @@ def get_main_reply_keyboard():
   return markup
 
 
+# 1. ዋና የቋንቋ መምረጫ ገጽ (Main Menu Inline)
 def get_language_inline_keyboard():
   markup = InlineKeyboardMarkup(row_width=2)
   markup.add(
-      InlineKeyboardButton('ግዕዝ መማሪያ', callback_data='lang_geez_guide'),
-      InlineKeyboardButton('ግዕዝ-አማርኛ', callback_data='lang_geez_amharic'),
+      InlineKeyboardButton('ግእዝ', callback_data='lang_geez'),
+      InlineKeyboardButton('ግእዝ-አማርኛ', callback_data='lang_geez_amharic'),
+  )
+  markup.add(
+      InlineKeyboardButton(
+          'የግእዝ ቋንቋ መማሪያ', callback_data='lang_geez_guide'
+      )
   )
   markup.add(
       InlineKeyboardButton('አማርኛ', callback_data='lang_amharic'),
@@ -165,28 +171,124 @@ def get_language_inline_keyboard():
   return markup
 
 
-def get_geez_books_keyboard():
+# 2. የክፍሎች መምረጫ (Category Selection)
+def get_category_keyboard(lang_code):
+  markup = InlineKeyboardMarkup(row_width=2)
+  if lang_code == 'english':
+    markup.add(
+        InlineKeyboardButton(
+            'Law & Order', callback_data=f'cat_{lang_code}_law'
+        ),
+        InlineKeyboardButton(
+            'History & Discourse', callback_data=f'cat_{lang_code}_history_main'
+        ),
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'Theology', callback_data=f'cat_{lang_code}_theology'
+        ),
+        InlineKeyboardButton(
+            'Christian Ethics', callback_data=f'cat_{lang_code}_ethics'
+        ),
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'Holy Bible Section', callback_data=f'cat_{lang_code}_bible'
+        )
+    )
+    markup.add(InlineKeyboardButton('🔙 Go Back', callback_data='go_main_menu'))
+  else:
+    markup.add(
+        InlineKeyboardButton(
+            'ሕግና ሥርዓት', callback_data=f'cat_{lang_code}_law'
+        ),
+        InlineKeyboardButton(
+            'ታሪክና ድርሳናት', callback_data=f'cat_{lang_code}_history_main'
+        ),
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'ነገረ ሃይማኖት', callback_data=f'cat_{lang_code}_theology'
+        ),
+        InlineKeyboardButton(
+            'ክርስቲያናዊ ሥነ ምግባር', callback_data=f'cat_{lang_code}_ethics'
+        ),
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'የመጽሐፍ ቅዱስ ክፍል', callback_data=f'cat_{lang_code}_bible'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton('🔙 ወደ ኋላ ይመለሱ', callback_data='go_main_menu')
+    )
+  return markup
+
+
+# 3. የታሪክና ድርሳናት ንኡስ ክፍል መምረጫ (Sub-category for History)
+def get_history_subcategory_keyboard(lang_code):
   markup = InlineKeyboardMarkup(row_width=1)
-  for index, book in enumerate(GEEZ_BOOKS):
+  if lang_code == 'english':
+    markup.add(
+        InlineKeyboardButton(
+            '1. History', callback_data=f'sub_{lang_code}_history'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            '2. Discourse, Hagiography & Miracles',
+            callback_data=f'sub_{lang_code}_hagiography',
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            '🔙 Go Back', callback_data=f'back_to_lang_{lang_code}'
+        )
+    )
+  else:
+    markup.add(
+        InlineKeyboardButton(
+            '1. ታሪክ', callback_data=f'sub_{lang_code}_history'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            '2. ድርሳን፣ ገድልና ተአምር', callback_data=f'sub_{lang_code}_hagiography'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            '🔙 ወደ ኋላ ይመለሱ', callback_data=f'back_to_lang_{lang_code}'
+        )
+    )
+  return markup
+
+
+# 4. የግእዝ መማሪያ መጽሐፍት ዝርዝር
+def get_geez_guide_books_keyboard():
+  markup = InlineKeyboardMarkup(row_width=1)
+  for index, book in enumerate(GEEZ_GUIDE_BOOKS):
     markup.add(
         InlineKeyboardButton(
             book['title'], callback_data=f'get_geez_book_{index}'
         )
     )
-  markup.add(InlineKeyboardButton('⬅️ ወደ ዋናው ማውጫ', callback_data='go_main_menu'))
+  markup.add(
+      InlineKeyboardButton('🔙 ወደ ኋላ ይመለሱ', callback_data='go_main_menu')
+  )
   return markup
 
 
 # ----------------------------------------------------
-# 5. Command & Text Handlers
+# 5. Handlers & Bot Logic
 # ----------------------------------------------------
 
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
   welcome_text = (
-      '📚 **እንኳን ወደ «መንፈሳዊ ዲጂታል ቤተ-መጽሐፍት» በሰላም መጡ!**\n\n'
-      'እባክዎ መጽሐፍትን ለማግኘት የቋንቋ ዘርፍ ይምረጡ፦'
+      '📚 **እንኳን ወደ «መንፈሳዊ ዲጂታል ቤተ-መጻሕፍት» በደኅና መጡ!**\n\n'
+      'እባክዎ መጽሐፍትን በምን ቋንቋ ማንበብ ይፈልጋሉ?'
   )
   bot.send_message(
       message.chat.id,
@@ -215,7 +317,7 @@ def handle_main_menu_button(message):
 def handle_books_button(message):
   bot.send_message(
       message.chat.id,
-      'እባክዎ መጽሐፍትን ለማግኘት የቋንቋ ዘርፍ ይምረጡ፦',
+      'እባክዎ መጽሐፍትን በምን ቋንቋ ማንበብ ይፈልጋሉ?',
       reply_markup=get_language_inline_keyboard(),
   )
 
@@ -239,46 +341,159 @@ def handle_feedback(message):
 
 
 # ----------------------------------------------------
-# 6. Callback Query Handler (የኢንላይን በተኖች ምላሽ)
+# 6. Callback Queries (Inline Keyboard Event Handling)
 # ----------------------------------------------------
 
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
-  if call.data == 'lang_geez_guide':
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text='📖 **የግዕዝ መማሪያ መጽሐፍት፦**\n\nለማውረድ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
-        reply_markup=get_geez_books_keyboard(),
-        parse_mode='Markdown',
-    )
-  elif call.data.startswith('get_geez_book_'):
-    index = int(call.data.split('_')[-1])
-    book = GEEZ_BOOKS[index]
-    bot.send_message(call.message.chat.id, f"⏳ **{book['title']}** በመላክ ላይ ነው...")
-    bot.send_document(call.message.chat.id, book['file_id'])
-  elif call.data == 'go_main_menu':
+  data = call.data
+
+  # 1. ወደ ዋና ማውጫ የመመለሻ በተን
+  if data == 'go_main_menu':
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
         text=(
-            '📚 **እንኳን ወደ «መንፈሳዊ ዲጂታል ቤተ-መጽሐፍት» በሰላም መጡ!**\n\n'
-            'እባክዎ መጽሐፍትን ለማግኘት የቋንቋ ዘርፍ ይምረጡ፦'
+            '📚 **እንኳን ወደ «መንፈሳዊ ዲጂታል ቤተ-መጻሕፍት» በደኅና መጡ!**\n\n'
+            'እባክዎ መጽሐፍትን በምን ቋንቋ ማንበብ ይፈልጋሉ?'
         ),
         reply_markup=get_language_inline_keyboard(),
         parse_mode='Markdown',
     )
 
+  # 2. የቋንቋ ምርጫዎች
+  elif data == 'lang_geez':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text='📖 የተመረጠው ቋንቋ፦ 📜 **ግዕዝ**\n\nእባክዎ በግእዝ ምን ማንበብ ይፈልጋሉ?',
+        reply_markup=get_category_keyboard('geez'),
+        parse_mode='Markdown',
+    )
+
+  elif data == 'lang_geez_amharic':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=(
+            '📖 የተመረጠው ቋንቋ፦ 🇪🇹 **ግዕዝ አማርኛ**\n\n'
+            'እባክዎ በግእዝ አማርኛ ምን ማንበብ ይፈልጋሉ?'
+        ),
+        reply_markup=get_category_keyboard('geez_amharic'),
+        parse_mode='Markdown',
+    )
+
+  elif data == 'lang_geez_guide':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text='📖 **የግእዝ ቋንቋ መመሪያ (መማሪያ መጽሐፍት)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
+        reply_markup=get_geez_guide_books_keyboard(),
+        parse_mode='Markdown',
+    )
+
+  elif data == 'lang_amharic':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text='📖 የተመረጠው ቋንቋ፦ **አማርኛ**\n\nእባክዎ በአማርኛ ምን ማንበብ ይፈልጋሉ?',
+        reply_markup=get_category_keyboard('amharic'),
+        parse_mode='Markdown',
+    )
+
+  elif data == 'lang_english':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=(
+            '📖 Selected Language: 🇬🇧 **English**\n\nPlease choose what you would'
+            ' like to read in English:'
+        ),
+        reply_markup=get_category_keyboard('english'),
+        parse_mode='Markdown',
+    )
+
+  # 3. ወደ ቋንቋ መምረጫ መመለሻ (Back to Language Category)
+  elif data.startswith('back_to_lang_'):
+    lang_code = data.replace('back_to_lang_', '')
+    if lang_code == 'english':
+      bot.edit_message_text(
+          chat_id=call.message.chat.id,
+          message_id=call.message.message_id,
+          text=(
+              '📖 Selected Language: 🇬🇧 **English**\n\nPlease choose what you'
+              ' would like to read in English:'
+          ),
+          reply_markup=get_category_keyboard('english'),
+          parse_mode='Markdown',
+      )
+    else:
+      bot.edit_message_text(
+          chat_id=call.message.chat.id,
+          message_id=call.message.message_id,
+          text='እባክዎ ምን ማንበብ ይፈልጋሉ?',
+          reply_markup=get_category_keyboard(lang_code),
+          parse_mode='Markdown',
+      )
+
+  # 4. ታሪክና ድርሳናት ሲነካ
+  elif data.endswith('_history_main'):
+    lang_code = data.split('_')[1]
+    msg = (
+        'Please select one of the following options:'
+        if lang_code == 'english'
+        else 'እባክዎ ከታች ካሉት አማራጮች አንዱን ይምረጡ፦'
+    )
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=msg,
+        reply_markup=get_history_subcategory_keyboard(lang_code),
+        parse_mode='Markdown',
+    )
+
+  # 5. መጽሐፍት ማውረጃና ዝርዝር
+  elif data.startswith('get_geez_book_'):
+    index = int(data.split('_')[-1])
+    book = GEEZ_GUIDE_BOOKS[index]
+    bot.send_message(
+        call.message.chat.id, f"ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n\"{book['title']}\"\n\nመልካም ንባብ ይሁንሎት! 📖✨"
+    )
+    bot.send_document(call.message.chat.id, book['file_id'])
+
+  # ለሌሎቹ ባዶ ክፍሎች የሚሰጥ ጊዜያዊ ምላሽ
+  elif data.startswith('cat_') or data.startswith('sub_'):
+    is_eng = 'english' in data
+    text_msg = (
+        'Please select the book you would like to read:\n\n*(No books added to'
+        ' this section yet)*'
+        if is_eng
+        else 'እባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦\n\n*(በዚህ ክፍል እስካሁን የገቡ መጽሐፍት የሉም)*'
+    )
+    back_btn_text = '🔙 Go Back' if is_eng else '🔙 ወደ ኋላ ይመለሱ'
+
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton('🔙 ወደ ኋላ ይመለሱ', callback_data='go_main_menu')
+    )
+
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=text_msg,
+        reply_markup=markup,
+        parse_mode='Markdown',
+    )
+
 
 # ----------------------------------------------------
-# 7. Document Handler (ለአንተ/Admin ብቻ የተገደበ)
+# 7. Document Handler (ለAdmin ብቻ የተገደበ)
 # ----------------------------------------------------
 
 
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
-  # ከላከው ተጠቃሚ Username ጋር ያጣራል
   sender_username = message.from_user.username
   if sender_username and sender_username.lower() == ADMIN_USERNAME.lower():
     file_id = message.document.file_id
@@ -297,7 +512,7 @@ def handle_document(message):
 
 
 # ----------------------------------------------------
-# 8. Start App & Bot
+# 8. App Launch
 # ----------------------------------------------------
 if __name__ == '__main__':
   keep_alive()
