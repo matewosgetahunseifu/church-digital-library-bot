@@ -3,10 +3,6 @@ from threading import Thread
 from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
-
-# ----------------------------------------------------
-# 1. Flask Web Server (Render Keep-Alive)
-# ----------------------------------------------------
 app = Flask(__name__)
 
 
@@ -25,10 +21,6 @@ def keep_alive():
   t.daemon = True
   t.start()
 
-
-# ----------------------------------------------------
-# 2. Telegram Bot Configuration
-# ----------------------------------------------------
 BOT_TOKEN = os.environ.get(
     'BOT_TOKEN', '8777005011:AAHi7FXjLXk9QkRBzylmzsLqYj7dRC1PR_Y'
 )
@@ -37,9 +29,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # Admin Username (ለደህንነት የተገደበ)
 ADMIN_USERNAME = 'Sealilenemariyammsle12we19'
 
-# ----------------------------------------------------
 # 3. Database (የግእዝ መማሪያ መጽሐፍት ዝርዝር)
-# ----------------------------------------------------
 GEEZ_GUIDE_BOOKS = [
     {
         'title': '1. መጽሐፈ ሰዋስው ወግስ ወመዝገበ ቃላት ሐዲስ (አለቃ ኪዳነ ወልድ ክፍሌ)',
@@ -139,9 +129,7 @@ GEEZ_GUIDE_BOOKS = [
     },
 ]
 
-# ----------------------------------------------------
 # 4. Keyboards Generation Functions
-# ----------------------------------------------------
 
 
 def get_main_reply_keyboard():
@@ -278,10 +266,8 @@ def get_geez_guide_books_keyboard():
   )
   return markup
 
-
-# ----------------------------------------------------
 # 5. Handlers & Bot Logic
-# ----------------------------------------------------
+
 
 
 @bot.message_handler(commands=['start', 'help'])
@@ -339,11 +325,7 @@ def handle_feedback(message):
       parse_mode='Markdown',
   )
 
-
-# ----------------------------------------------------
 # 6. Callback Queries (Inline Keyboard Event Handling)
-# ----------------------------------------------------
-
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -414,7 +396,7 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-  # 3. ወደ ቋንቋ መምረጫ መመለሻ (Back to Language Category)
+  # 3. ወደ ቋንቋ መምረጫ መመለሻ 
   elif data.startswith('back_to_lang_'):
     lang_code = data.replace('back_to_lang_', '')
     if lang_code == 'english':
@@ -486,10 +468,7 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-
-# ----------------------------------------------------
 # 7. Document Handler (ለAdmin ብቻ የተገደበ)
-# ----------------------------------------------------
 
 
 @bot.message_handler(content_types=['document'])
@@ -510,10 +489,8 @@ def handle_document(message):
         'መጽሐፍ ለማስገባት ጥቆማ ካለዎት እባክዎ በ Feedback መስመር ያድርሱን።',
     )
 
-
-# ----------------------------------------------------
 # 8. App Launch
-# ----------------------------------------------------
+
 if __name__ == '__main__':
   keep_alive()
   print('Bot is starting...')
