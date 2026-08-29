@@ -31,7 +31,11 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # Admin Username (ለደህንነት የተገደበ)
 ADMIN_USERNAME = 'Sealilenemariyammsle12we19'
 
-# 3. Database (የመጽሐፍት ዝርዝር)
+# ==========================================
+# DATABASE (የመጽሐፍት ዝርዝር)
+# ==========================================
+
+# 1. የግእዝ ቋንቋ መማሪያ መጻሕፍት (16 መጻሕፍት)
 GEEZ_GUIDE_BOOKS = [
     {
         'title': (
@@ -134,6 +138,7 @@ GEEZ_GUIDE_BOOKS = [
     },
 ]
 
+# 2. የግእዝ-አማርኛ ብሉይ ኪዳን መጻሕፍት (5ቱ አንድምታ መጻሕፍት)
 GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS = [
     {
         'title': '1. ኦሪት ዘፍጥረት አንድምታ',
@@ -167,6 +172,7 @@ GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS = [
     },
 ]
 
+# 3. የግእዝ ብሉይ ኪዳን መጻሕፍት (የብራና መጽሐፍ)
 GEEZ_OLD_TESTAMENT_BOOKS = [
     {
         'title': '1. ፭ቱ መጽሐፈ ኦሪት ብራና አንድምታ',
@@ -176,7 +182,10 @@ GEEZ_OLD_TESTAMENT_BOOKS = [
     }
 ]
 
-# 4. Keyboards Generation Functions
+
+# ==========================================
+# KEYBOARD GENERATION FUNCTIONS
+# ==========================================
 
 
 def get_main_reply_keyboard():
@@ -187,7 +196,7 @@ def get_main_reply_keyboard():
   return markup
 
 
-# 1. ዋና የቋንቋ መምረጫ ገጽ (Main Menu Inline)
+# 1. ዋና የቋንቋ መምረጫ
 def get_language_inline_keyboard():
   markup = InlineKeyboardMarkup(row_width=2)
   markup.add(
@@ -260,7 +269,7 @@ def get_category_keyboard(lang_code):
   return markup
 
 
-# 3. የታሪክና ድርሳናት ንኡስ ክፍል መምረጫ (Sub-category for History)
+# 3. የታሪክና ድርሳናት ንኡስ ክፍል
 def get_history_subcategory_keyboard(lang_code):
   markup = InlineKeyboardMarkup(row_width=1)
   if lang_code == 'english':
@@ -299,7 +308,7 @@ def get_history_subcategory_keyboard(lang_code):
   return markup
 
 
-# 3.b የነገረ ሃይማኖት ንኡስ ክፍል መምረጫ (Sub-category for Theology)
+# 4. የነገረ ሃይማኖት ንኡስ ክፍል
 def get_theology_subcategory_keyboard(lang_code):
   markup = InlineKeyboardMarkup(row_width=2)
   if lang_code == 'english':
@@ -349,7 +358,7 @@ def get_theology_subcategory_keyboard(lang_code):
   return markup
 
 
-# 3.c የመጽሐፍ ቅዱስ ንኡስ ክፍል መምረጫ (Sub-category for Holy Bible)
+# 5. የመጽሐፍ ቅዱስ ንኡስ ክፍል
 def get_bible_subcategory_keyboard(lang_code):
   markup = InlineKeyboardMarkup(row_width=1)
   if lang_code == 'english':
@@ -397,7 +406,7 @@ def get_bible_subcategory_keyboard(lang_code):
   return markup
 
 
-# 4. የግእዝ መማሪያ መጽሐፍት ዝርዝር
+# 6. የግእዝ መማሪያ መጻሕፍት ዝርዝር Keyboards
 def get_geez_guide_books_keyboard():
   markup = InlineKeyboardMarkup(row_width=1)
   for index, book in enumerate(GEEZ_GUIDE_BOOKS):
@@ -412,7 +421,7 @@ def get_geez_guide_books_keyboard():
   return markup
 
 
-# 4.b የግእዝ-አማርኛ የብሉይ ኪዳን መጻሕፍት ዝርዝር
+# 7. የግእዝ-አማርኛ የብሉይ ኪዳን መጻሕፍት ዝርዝር Keyboards
 def get_geez_amharic_ot_books_keyboard():
   markup = InlineKeyboardMarkup(row_width=1)
   for index, book in enumerate(GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS):
@@ -429,7 +438,7 @@ def get_geez_amharic_ot_books_keyboard():
   return markup
 
 
-# 4.c የግእዝ የብሉይ ኪዳን መጻሕፍት ዝርዝር
+# 8. የግእዝ የብሉይ ኪዳን መጻሕፍት ዝርዝር Keyboards
 def get_geez_ot_books_keyboard():
   markup = InlineKeyboardMarkup(row_width=1)
   for index, book in enumerate(GEEZ_OLD_TESTAMENT_BOOKS):
@@ -446,7 +455,9 @@ def get_geez_ot_books_keyboard():
   return markup
 
 
-# 5. Handlers & Bot Logic
+# ==========================================
+# BOT HANDLERS & LOGIC
+# ==========================================
 
 
 @bot.message_handler(commands=['start', 'help'])
@@ -505,14 +516,16 @@ def handle_feedback(message):
   )
 
 
-# 6. Callback Queries (Inline Keyboard Event Handling)
+# ==========================================
+# CALLBACK QUERY HANDLER
+# ==========================================
 
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
   data = call.data
 
-  # 1. ወደ ዋና ማውጫ የመመለሻ በተን
+  # 1. ወደ ዋና ማውጫ የመመለሻ
   if data == 'go_main_menu':
     bot.edit_message_text(
         chat_id=call.message.chat.id,
@@ -619,7 +632,7 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-  # 5. ነገረ ሃይማኖት ሲነካ (የነገረ ሃይማኖት ንኡስ ክፍሎች)
+  # 5. ነገረ ሃይማኖት ሲነካ
   elif data.endswith('_theology_main'):
     lang_code = data.split('_')[1]
     msg = (
@@ -635,9 +648,10 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-  # 6. የመጽሐፍ ቅዱስ ክፍል ሲነካ (የመጽሐፍ ቅዱስ ንኡስ ክፍሎች)
+  # 6. የመጽሐፍ ቅዱስ ክፍል ሲነካ
   elif data.endswith('_bible_main'):
-    lang_code = data.split('_')[1]
+    # Extract complete language code (e.g. 'geez_amharic', 'geez', etc.)
+    lang_code = data.replace('cat_', '').replace('_bible_main', '')
     msg = (
         'Please select one of the following options:'
         if lang_code == 'english'
@@ -651,7 +665,7 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-  # 7. የብሉይ ኪዳን መጻሕፍት ሲነካ
+  # 7. የብሉይ ኪዳን መጻሕፍት ሲነካ (በቋንቋ የተለዩ)
   elif data == 'sub_geez_amharic_ot':
     bot.edit_message_text(
         chat_id=call.message.chat.id,
@@ -670,7 +684,7 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-  # 8. መጽሐፍት ማውረጃና ዝርዝር
+  # 8. የመጽሐፍ ማውረድና መላክ 핸ድለሮች (Get Book Logic)
   elif data.startswith('get_geez_book_'):
     index = int(data.split('_')[-1])
     book = GEEZ_GUIDE_BOOKS[index]
@@ -698,7 +712,7 @@ def handle_callback(call):
     )
     bot.send_document(call.message.chat.id, book['file_id'])
 
-  # ለሌሎቹ ባዶ ክፍሎች የሚሰጥ ጊዜያዊ ምላሽ
+  # 9. እስካሁን መጽሐፍ ያልገበባቸው ክፍሎች ምላሽ
   elif data.startswith('cat_') or data.startswith('sub_'):
     is_eng = 'english' in data
     text_msg = (
@@ -725,7 +739,9 @@ def handle_callback(call):
     )
 
 
-# 7. Document Handler (ለAdmin ብቻ የተገደበ)
+# ==========================================
+# DOCUMENT UPLOAD HANDLER (ADMIN ONLY)
+# ==========================================
 
 
 @bot.message_handler(content_types=['document'])
@@ -747,7 +763,9 @@ def handle_document(message):
     )
 
 
-# 8. App Launch
+# ==========================================
+# APP LAUNCH
+# ==========================================
 
 if __name__ == '__main__':
   keep_alive()
