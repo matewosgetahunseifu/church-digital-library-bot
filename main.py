@@ -134,7 +134,7 @@ GEEZ_GUIDE_BOOKS = [
     },
 ]
 
-GEEZ_AMHARIC_BIBLE_BOOKS = [
+GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS = [
     {
         'title': '1. ኦሪት ዘፍጥረት አንድምታ',
         'file_id': (
@@ -167,7 +167,7 @@ GEEZ_AMHARIC_BIBLE_BOOKS = [
     },
 ]
 
-GEEZ_BIBLE_BOOKS = [
+GEEZ_OLD_TESTAMENT_BOOKS = [
     {
         'title': '1. ፭ቱ መጽሐፈ ኦሪት ብራና አንድምታ',
         'file_id': (
@@ -220,7 +220,7 @@ def get_category_keyboard(lang_code):
     )
     markup.add(
         InlineKeyboardButton(
-            'Theology', callback_data=f'cat_{lang_code}_theology'
+            'Theology', callback_data=f'cat_{lang_code}_theology_main'
         ),
         InlineKeyboardButton(
             'Christian Ethics', callback_data=f'cat_{lang_code}_ethics'
@@ -228,7 +228,7 @@ def get_category_keyboard(lang_code):
     )
     markup.add(
         InlineKeyboardButton(
-            'Holy Bible Section', callback_data=f'cat_{lang_code}_bible'
+            'Holy Bible Section', callback_data=f'cat_{lang_code}_bible_main'
         )
     )
     markup.add(InlineKeyboardButton('🔙 Go Back', callback_data='go_main_menu'))
@@ -243,7 +243,7 @@ def get_category_keyboard(lang_code):
     )
     markup.add(
         InlineKeyboardButton(
-            'ነገረ ሃይማኖት', callback_data=f'cat_{lang_code}_theology'
+            'ነገረ ሃይማኖት', callback_data=f'cat_{lang_code}_theology_main'
         ),
         InlineKeyboardButton(
             'ክርስቲያናዊ ሥነ ምግባር', callback_data=f'cat_{lang_code}_ethics'
@@ -251,7 +251,7 @@ def get_category_keyboard(lang_code):
     )
     markup.add(
         InlineKeyboardButton(
-            'የመጽሐፍ ቅዱስ ክፍል', callback_data=f'cat_{lang_code}_bible'
+            'የመጽሐፍ ቅዱስ ክፍል', callback_data=f'cat_{lang_code}_bible_main'
         )
     )
     markup.add(
@@ -299,6 +299,104 @@ def get_history_subcategory_keyboard(lang_code):
   return markup
 
 
+# 3.b የነገረ ሃይማኖት ንኡስ ክፍል መምረጫ (Sub-category for Theology)
+def get_theology_subcategory_keyboard(lang_code):
+  markup = InlineKeyboardMarkup(row_width=2)
+  if lang_code == 'english':
+    markup.add(
+        InlineKeyboardButton(
+            'Patristics / Saints', callback_data=f'sub_{lang_code}_saints'
+        ),
+        InlineKeyboardButton(
+            'Mariology', callback_data=f'sub_{lang_code}_mariology'
+        ),
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'Christology', callback_data=f'sub_{lang_code}_christology'
+        ),
+        InlineKeyboardButton(
+            'Theology', callback_data=f'sub_{lang_code}_theology_sub'
+        ),
+    )
+    markup.add(
+        InlineKeyboardButton(
+            '🔙 Go Back', callback_data=f'back_to_lang_{lang_code}'
+        )
+    )
+  else:
+    markup.add(
+        InlineKeyboardButton(
+            'ነገረ ቅዱሳን', callback_data=f'sub_{lang_code}_saints'
+        ),
+        InlineKeyboardButton(
+            'ነገረ ማርያም', callback_data=f'sub_{lang_code}_mariology'
+        ),
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'ነገረ ክርስቶስ', callback_data=f'sub_{lang_code}_christology'
+        ),
+        InlineKeyboardButton(
+            'ነገረ ሃይማኖት', callback_data=f'sub_{lang_code}_theology_sub'
+        ),
+    )
+    markup.add(
+        InlineKeyboardButton(
+            '🔙 ወደ ኋላ ይመለሱ', callback_data=f'back_to_lang_{lang_code}'
+        )
+    )
+  return markup
+
+
+# 3.c የመጽሐፍ ቅዱስ ንኡስ ክፍል መምረጫ (Sub-category for Holy Bible)
+def get_bible_subcategory_keyboard(lang_code):
+  markup = InlineKeyboardMarkup(row_width=1)
+  if lang_code == 'english':
+    markup.add(
+        InlineKeyboardButton(
+            'Old Testament Books', callback_data=f'sub_{lang_code}_ot'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'New Testament Books', callback_data=f'sub_{lang_code}_nt'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'Bible Study', callback_data=f'sub_{lang_code}_bible_study'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            '🔙 Go Back', callback_data=f'back_to_lang_{lang_code}'
+        )
+    )
+  else:
+    markup.add(
+        InlineKeyboardButton(
+            'የብሉይ ኪዳን መጻሕፍት', callback_data=f'sub_{lang_code}_ot'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'የሐዲስ ኪዳን መጻሕፍት', callback_data=f'sub_{lang_code}_nt'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            'የመጽሐፍ ቅዱስ ጥናት', callback_data=f'sub_{lang_code}_bible_study'
+        )
+    )
+    markup.add(
+        InlineKeyboardButton(
+            '🔙 ወደ ኋላ ይመለሱ', callback_data=f'back_to_lang_{lang_code}'
+        )
+    )
+  return markup
+
+
 # 4. የግእዝ መማሪያ መጽሐፍት ዝርዝር
 def get_geez_guide_books_keyboard():
   markup = InlineKeyboardMarkup(row_width=1)
@@ -314,35 +412,35 @@ def get_geez_guide_books_keyboard():
   return markup
 
 
-# 4.b የግእዝ-አማርኛ የመጽሐፍ ቅዱስ ክፍል ዝርዝር
-def get_geez_amharic_bible_books_keyboard():
+# 4.b የግእዝ-አማርኛ የብሉይ ኪዳን መጻሕፍት ዝርዝር
+def get_geez_amharic_ot_books_keyboard():
   markup = InlineKeyboardMarkup(row_width=1)
-  for index, book in enumerate(GEEZ_AMHARIC_BIBLE_BOOKS):
+  for index, book in enumerate(GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS):
     markup.add(
         InlineKeyboardButton(
-            book['title'], callback_data=f'get_ga_bible_book_{index}'
+            book['title'], callback_data=f'get_ga_ot_book_{index}'
         )
     )
   markup.add(
       InlineKeyboardButton(
-          '🔙 ወደ ኋላ ይመለሱ', callback_data='back_to_lang_geez_amharic'
+          '🔙 ወደ ኋላ ይመለሱ', callback_data='cat_geez_amharic_bible_main'
       )
   )
   return markup
 
 
-# 4.c የግእዝ የመጽሐፍ ቅዱስ ክፍል ዝርዝር
-def get_geez_bible_books_keyboard():
+# 4.c የግእዝ የብሉይ ኪዳን መጻሕፍት ዝርዝር
+def get_geez_ot_books_keyboard():
   markup = InlineKeyboardMarkup(row_width=1)
-  for index, book in enumerate(GEEZ_BIBLE_BOOKS):
+  for index, book in enumerate(GEEZ_OLD_TESTAMENT_BOOKS):
     markup.add(
         InlineKeyboardButton(
-            book['title'], callback_data=f'get_gz_bible_book_{index}'
+            book['title'], callback_data=f'get_gz_ot_book_{index}'
         )
     )
   markup.add(
       InlineKeyboardButton(
-          '🔙 ወደ ኋላ ይመለሱ', callback_data='back_to_lang_geez'
+          '🔙 ወደ ኋላ ይመለሱ', callback_data='cat_geez_bible_main'
       )
   )
   return markup
@@ -521,26 +619,58 @@ def handle_callback(call):
         parse_mode='Markdown',
     )
 
-  # 5. የመጽሐፍ ቅዱስ ክፍል ሲነካ (የነበሩትን መጽሐፍት ማሳያ)
-  elif data == 'cat_geez_amharic_bible':
+  # 5. ነገረ ሃይማኖት ሲነካ (የነገረ ሃይማኖት ንኡስ ክፍሎች)
+  elif data.endswith('_theology_main'):
+    lang_code = data.split('_')[1]
+    msg = (
+        'Please select one of the following options:'
+        if lang_code == 'english'
+        else 'እባክዎ ከታች ካሉት አማራጮች አንዱን ይምረጡ፦'
+    )
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text='📖 **የመጽሐፍ ቅዱስ ክፍል (ግእዝ-አማርኛ)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
-        reply_markup=get_geez_amharic_bible_books_keyboard(),
+        text=msg,
+        reply_markup=get_theology_subcategory_keyboard(lang_code),
         parse_mode='Markdown',
     )
 
-  elif data == 'cat_geez_bible':
+  # 6. የመጽሐፍ ቅዱስ ክፍል ሲነካ (የመጽሐፍ ቅዱስ ንኡስ ክፍሎች)
+  elif data.endswith('_bible_main'):
+    lang_code = data.split('_')[1]
+    msg = (
+        'Please select one of the following options:'
+        if lang_code == 'english'
+        else 'እባክዎ ከታች ካሉት አማራጮች አንዱን ይምረጡ፦'
+    )
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text='📖 **የመጽሐፍ ቅዱስ ክፍል (ግእዝ)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
-        reply_markup=get_geez_bible_books_keyboard(),
+        text=msg,
+        reply_markup=get_bible_subcategory_keyboard(lang_code),
         parse_mode='Markdown',
     )
 
-  # 6. መጽሐፍት ማውረጃና ዝርዝር
+  # 7. የብሉይ ኪዳን መጻሕፍት ሲነካ
+  elif data == 'sub_geez_amharic_ot':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text='📖 **የብሉይ ኪዳን መጻሕፍት (ግእዝ-አማርኛ)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
+        reply_markup=get_geez_amharic_ot_books_keyboard(),
+        parse_mode='Markdown',
+    )
+
+  elif data == 'sub_geez_ot':
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text='📖 **የብሉይ ኪዳን መጻሕፍት (ግእዝ)፦**\n\nእባክዎ ማንበብ የሚፈልጉትን መጽሐፍ ይምረጡ፦',
+        reply_markup=get_geez_ot_books_keyboard(),
+        parse_mode='Markdown',
+    )
+
+  # 8. መጽሐፍት ማውረጃና ዝርዝር
   elif data.startswith('get_geez_book_'):
     index = int(data.split('_')[-1])
     book = GEEZ_GUIDE_BOOKS[index]
@@ -550,18 +680,18 @@ def handle_callback(call):
     )
     bot.send_document(call.message.chat.id, book['file_id'])
 
-  elif data.startswith('get_ga_bible_book_'):
+  elif data.startswith('get_ga_ot_book_'):
     index = int(data.split('_')[-1])
-    book = GEEZ_AMHARIC_BIBLE_BOOKS[index]
+    book = GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS[index]
     bot.send_message(
         call.message.chat.id,
         f'ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n"{book["title"]}"\n\nመልካም ንባብ ይሁንሎት! 📖✨',
     )
     bot.send_document(call.message.chat.id, book['file_id'])
 
-  elif data.startswith('get_gz_bible_book_'):
+  elif data.startswith('get_gz_ot_book_'):
     index = int(data.split('_')[-1])
-    book = GEEZ_BIBLE_BOOKS[index]
+    book = GEEZ_OLD_TESTAMENT_BOOKS[index]
     bot.send_message(
         call.message.chat.id,
         f'ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n"{book["title"]}"\n\nመልካም ንባብ ይሁንሎት! 📖✨',
