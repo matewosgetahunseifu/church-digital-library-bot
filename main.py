@@ -80,6 +80,7 @@ MENU_STRUCTURE = {
             "ታሪክ": {"books": []},
             "ድርሳን፣ ገድልና ተአምር": {"books": []}
         },
+        "ክርስቲያናዊ ሥነ ምግባር": {"books": []},
         "የመጽሐፍ ቅዱስ ክፍል": {
             "የብሉይ ኪዳን መጻሕፍት": {
                 "books": [
@@ -99,6 +100,7 @@ MENU_STRUCTURE = {
             "ታሪክ": {"books": []},
             "ድርሳን፣ ገድልና ተአምር": {"books": []}
         },
+        "ክርስቲያናዊ ሥነ ምግባር": {"books": []},
         "የመጽሐፍ ቅዱስ ክፍል": {
             "የብሉይ ኪዳን መጻሕፍት": {
                 "books": [
@@ -256,7 +258,7 @@ MENU_STRUCTURE = {
     }
 }
 
-# 64-Byte Callback Limit ለመጠበቅ የሚረዳ Indexing አሰራር
+# 64-Byte Limit ችግርን ለመፍታት የበተን መንገዶችን (Paths) በደህና መታወቂያ (Index) የሚቀይር አሰራር
 PATH_MAP = {}
 REVERSE_PATH_MAP = {}
 
