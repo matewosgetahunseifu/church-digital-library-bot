@@ -5,11 +5,14 @@ from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
+# ==========================================
+# FLASK SERVER FOR 24/7 KEEP ALIVE
+# ==========================================
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return 'Church Digital Library Bot is Running 24/7!'
+    return 'Church Digital Library Bot with Auto-Approval is Running!'
 
 def run_flask():
     port = int(os.environ.get('PORT', 10000))
@@ -20,17 +23,25 @@ def keep_alive():
     t.daemon = True
     t.start()
 
+# ==========================================
+# BOT CONFIGURATION
+# ==========================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8777005011:AAHi7FXjLXk9QkRBzylmzsLqYj7dRC1PR_Y')
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Admin Username
-ADMIN_USERNAME = 'Sealilenemariyammsle12we19'
+# ⚠️ ADMIN TELEGRAM USER ID (ቁጥር መሆን አለበት፦ ለምሳሌ 123456789)
+# የራስህን Telegram User ID ለማወቅ በቴሌግራም @userinfobot ን ፈልገህ /start በለው።
+ADMIN_CHAT_ID = int(os.environ.get('ADMIN_CHAT_ID', '123456789'))
 
 # ==========================================
-# DATABASE (የመጽሐፍት ዝርዝር)
+# AUTOMATIC PAYMENT DATABASE (IN-MEMORY DB)
 # ==========================================
+# ክፍያ የፈጸሙ ተጠቃሚዎች መታወቂያ (User IDs) እዚህ ይመዘገባሉ
+PAID_USERS = set()
 
-# 1. የግእዝ ቋንቋ መማሪያ መጻሕፍት (16 መጻሕፍት)
+# ==========================================
+# BOOKS DATABASE
+# ==========================================
 GEEZ_GUIDE_BOOKS = [
     {'title': '1. መጽሐፈ ሰዋስው ወግስ ወመዝገበ ቃላት ሐዲስ (አለቃ ኪዳነ ወልድ ክፍሌ)', 'file_id': 'BQACAgQAAxkBAAOiapLEYe5R4ZxJ8_3PQZ-SHO6NA4sAAqofAAI12zhQV3FkwrOJJtc9BA'},
     {'title': '2. ግእዝ እንግሊዝኛ ኦገስት ዲልማን', 'file_id': 'BQACAgQAAxkBAAOvapLOTuM_iJ5-xleFbnGNgDLeJzAAAqAhAAKba2BQb49RMRsZf_49BA'},
@@ -50,7 +61,6 @@ GEEZ_GUIDE_BOOKS = [
     {'title': '16. መጽሐፈ ሰዋስው', 'file_id': 'BQACAgQAAxkBAAO9apLOThplHgQeqctpal2rVuqMU-8AAq8cAAIe9uFQcwlbPLpGfUc9BA'}
 ]
 
-# 2. የግእዝ-አማርኛ ብሉይ ኪዳን መጻሕፍት
 GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS = [
     {'title': '1. ኦሪት ዘፍጥረት አንድምታ', 'file_id': 'BQACAgQAAxkBAAPoapL5-j4Y4yKee0lyFZlMHif5UoAAAgcKAAKjPElSpWxXt7rSOxk9BA'},
     {'title': '2. ኦሪት ዘፀአት አንድምታ', 'file_id': 'BQACAgQAAxkBAAPpapL5-mx2OLB_jMKwjJx8isE-LRAAAggKAAKjPElSdkt4uS3PouI9BA'},
@@ -59,12 +69,10 @@ GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS = [
     {'title': '5. ኦሪት ዘዳግም አንድምታ', 'file_id': 'BQACAgQAAxkBAAPsapL5-qt3Lcu5lWpCIB8LZ9ly_V8AAgsKAAKjPElSKmH6OAPSIR49BA'}
 ]
 
-# 3. የግእዝ ብሉይ ኪዳን መጻሕፍት
 GEEZ_OLD_TESTAMENT_BOOKS = [
     {'title': '1. ፭ቱ መጽሐፈ ኦሪት ብራና አንድምታ', 'file_id': 'BQACAgQAAxkBAAP4apL8OXANqEqvyGn7V4Lk_C1rDygAAn0JAAIWA9hQayRhNPpVNvE9BA'}
 ]
 
-# 4. የግእዝ-አማርኛ ሐዲስ ኪዳን መጻሕፍት
 GEEZ_AMHARIC_NEW_TESTAMENT_BOOKS = []
 
 ALL_BOOKS_LISTS = [
@@ -77,10 +85,9 @@ ALL_BOOKS_LISTS = [
 # ==========================================
 # KEYBOARD GENERATION FUNCTIONS
 # ==========================================
-
 def get_main_reply_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add('📚 መንፈሳዊ መጽሐፍት', '🔍 መጽሐፍ ፈልግ')
+    markup.add('📚 መጻሕፍት', '🔍 መጽሐፍ ፈልግ')
     markup.add('📞 Contact Me', '💬 Feedback')
     markup.add('🏠 Main Menu')
     return markup
@@ -206,13 +213,36 @@ def get_geez_amharic_nt_books_keyboard():
     return markup
 
 # ==========================================
-# BOT HANDLERS & LOGIC
+# PAYMENT CHECK HELPER FUNCTION
 # ==========================================
+def send_payment_notice(chat_id):
+    payment_text = (
+        "⚠️ **መጽሐፉን ለማውረድ ክፍያ መፈጸም ያስፈልጋል!**\n\n"
+        "የፈለጉትን ሁሉ መጽሐፍ ከዚህ ቦት ለማውረድ አንድ ጊዜ **200 ብር** ይክፈሉ።\n\n"
+        "**የክፍያ መንገዶች፦**\n"
+        "• **አሐዱ ባንክ፦** `0100775011101`\n"
+        "• **የኢትዮጵያ ንግድ ባንክ (CBE)፦** `1000661046841`\n"
+        "• **አቢሲንያ ባንክ፦** `57080698`\n"
+        "• **ቴሌብር (Telebirr)፦** `0943910036`\n\n"
+        "👤 **የአካውንት ስም፦** Matewos Getahun Seifu\n\n"
+        "📌 *ክፍያውን እንደፈጸሙ የክፍያ ደረሰኙን (Screenshot ወይም የጽሑፍ SMS/TXN Ref) አሁን በቀጥታ ወደዚህ ቦት ይላኩ።*"
+    )
+    bot.send_message(chat_id, payment_text, parse_mode='Markdown')
 
+def check_access_and_send(chat_id, user_id, book_title, file_id):
+    if user_id in PAID_USERS:
+        bot.send_message(chat_id, f"ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n\"{book_title}\"\n\nመልካም ንባብ ይሁንሎት! 📖✨")
+        bot.send_document(chat_id, file_id)
+    else:
+        send_payment_notice(chat_id)
+
+# ==========================================
+# BOT HANDLERS & NAVIGATION
+# ==========================================
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     welcome_text = (
-        "📚 **እንኳን ወደ «መንፈሳዊ ዲጂታል ቤተ-መጻሕፍት» በደኅና መጡ!**\n\n"
+        "📚 **እንኳን ወደ «ዲጂታል ቤተ-መጻሕፍት» በደኅና መጡ!**\n\n"
         "እባክዎ መጽሐፍትን በምን ቋንቋ ማንበብ ይፈልጋሉ?"
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=get_language_inline_keyboard(), parse_mode='Markdown')
@@ -222,16 +252,15 @@ def send_welcome(message):
 def handle_main_menu_button(message):
     send_welcome(message)
 
-@bot.message_handler(func=lambda message: message.text == '📚 መንፈሳዊ መጽሐፍት')
+@bot.message_handler(func=lambda message: message.text == '📚 መጻሕፍት')
 def handle_books_button(message):
     bot.send_message(message.chat.id, "እባክዎ መጽሐፍትን በምን ቋንቋ ማንበብ ይፈልጋሉ?", reply_markup=get_language_inline_keyboard())
 
 @bot.message_handler(func=lambda message: message.text == '📞 Contact Me')
 def handle_contact(message):
-    contact_text = f"📩 **እኛን ለማግኘት፦**\n\nለማንኛውም አስተያየት ወይም ጥያቄ በቴሌግራም ያግኙን፦ @{ADMIN_USERNAME}"
+    contact_text = f"📩 **እኛን ለማግኘት፦**\n\nለማንኛውም አስተያየት ወይም ጥያቄ በቴሌግራም ያግኙን፦ @Sealilenemariyammsle12we19"
     bot.send_message(message.chat.id, contact_text, parse_mode='Markdown')
 
-# Feedback System Handler
 @bot.message_handler(func=lambda message: message.text == '💬 Feedback')
 def handle_feedback_start(message):
     msg = bot.send_message(
@@ -244,7 +273,6 @@ def handle_feedback_start(message):
 def process_feedback(message):
     bot.send_message(message.chat.id, "✅ **አስተያየትዎ ደርሶናል!** ስላገዙን እናመሰግናለን።", parse_mode='Markdown')
 
-# Smart Search System (ከፊደል ስህተት ማስተካከያ ጋር)
 @bot.message_handler(commands=['search'])
 @bot.message_handler(func=lambda message: message.text == '🔍 መጽሐፍ ፈልግ')
 def handle_search_start(message):
@@ -255,13 +283,11 @@ def process_search(message):
     query = message.text.strip().lower()
     results = []
     
-    # 1. ቀጥታ የሚመሳሰሉትን መፈለግ
     for book_list in ALL_BOOKS_LISTS:
         for book in book_list:
             if query in book['title'].lower():
                 results.append(book)
                 
-    # 2. ቀጥታ ካልተገኘ የተሳሳተ ፊደል (Fuzzy Match) መኖሩን መፈተሽ
     if not results:
         all_titles = []
         for book_list in ALL_BOOKS_LISTS:
@@ -269,7 +295,6 @@ def process_search(message):
                 all_titles.append(book['title'])
         
         matches = difflib.get_close_matches(message.text.strip(), all_titles, n=3, cutoff=0.3)
-        
         if matches:
             for matched_title in matches:
                 for book_list in ALL_BOOKS_LISTS:
@@ -277,7 +302,6 @@ def process_search(message):
                         if book['title'] == matched_title and book not in results:
                             results.append(book)
 
-    # 3. የፍለጋ ውጤቱን መላክ
     if not results:
         bot.send_message(
             message.chat.id, 
@@ -287,27 +311,95 @@ def process_search(message):
     else:
         bot.send_message(message.chat.id, f"🔍 <b>የተገኙ መጻሕፍት ({len(results)})፦</b>", parse_mode='HTML')
         for book in results:
-            bot.send_message(message.chat.id, f"📖 <b>{book['title']}</b>", parse_mode='HTML')
-            try:
-                bot.send_document(message.chat.id, book['file_id'])
-            except Exception as e:
-                print(f"Error sending document: {e}")
+            check_access_and_send(message.chat.id, message.from_user.id, book['title'], book['file_id'])
+
+# ==========================================
+# AUTOMATIC RECEIPT FORWARD & APPROVAL LOGIC
+# ==========================================
+@bot.message_handler(content_types=['photo', 'text'])
+def handle_payment_receipt(message):
+    # Admin መጽሐፍ ሲልክ ወይም መልእክት ሲጽፍ ችላ እንዲለው
+    if message.from_user.id == ADMIN_CHAT_ID:
+        return
+
+    user = message.from_user
+    user_info = f"👤 **የተጠቃሚ መረጃ፦**\n• ስም፦ {user.first_name} {user.last_name or ''}\n• Username: @{user.username or 'የለውም'}\n• User ID: `{user.id}`"
+
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("✅ Approve / ፈቅድ", callback_data=f"approve_{user.id}"),
+        InlineKeyboardButton("❌ Reject / ውድቅ አድርግ", callback_data=f"reject_{user.id}")
+    )
+
+    bot.send_message(ADMIN_CHAT_ID, f"📥 **አዲስ የክፍያ ደረሰኝ ደርሷል!**\n\n{user_info}", parse_mode='Markdown')
+
+    if message.content_type == 'photo':
+        photo_id = message.photo[-1].file_id
+        bot.send_photo(ADMIN_CHAT_ID, photo_id, caption="📸 የከፈለበት ደረሰኝ (Screenshot)", reply_markup=markup)
+    elif message.content_type == 'text' and not message.text.startswith('/'):
+        bot.send_message(ADMIN_CHAT_ID, f"💬 **የተላከ የጽሑፍ ማረጋገጫ፦**\n\"{message.text}\"", reply_markup=markup)
+
+    bot.reply_to(message, "✅ **የክፍያ ደረሰኝዎ ለአስተዳዳሪው ተልኳል!**\n\nክፍያው ከተረጋገጠ በኋላ መጻሕፍቱ በራስ-ሰር የሚከፈቱልዎት ይሆናል። ጥቂት ደቂቃዎችን ይጠብቁ።")
 
 # ==========================================
 # CALLBACK QUERY HANDLER
 # ==========================================
-
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     bot.answer_callback_query(call.id)
     data = call.data
 
     try:
-        if data == 'go_main_menu':
+        # APPROVAL LOGIC FOR ADMIN
+        if data.startswith('approve_'):
+            user_id = int(data.split('_')[1])
+            PAID_USERS.add(user_id) # በራሱ Auto-update ያደርጋል!
+            
+            bot.edit_message_caption(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                caption=f"{call.message.caption}\n\n✅ **ተፈቅዷል (Approved by Admin)!**",
+                reply_markup=None
+            ) if call.message.caption else bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"{call.message.text}\n\n✅ **ተፈቅዷል (Approved by Admin)!**",
+                reply_markup=None
+            )
+
+            # ለተጠቃሚው ማሳወቂያ መላክ
+            bot.send_message(
+                user_id, 
+                "🎉 **እንኳን ደስ አለዎት!**\n\nየክፍያ ደረሰኝዎ በተሳካ ሁኔታ ተረጋግጧል። አሁን ሁሉንም መጻሕፍት ማውረድና ማንበብ ይችላሉ! 📖✨", 
+                reply_markup=get_main_reply_keyboard()
+            )
+
+        elif data.startswith('reject_'):
+            user_id = int(data.split('_')[1])
+            
+            bot.edit_message_caption(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                caption=f"{call.message.caption}\n\n❌ **ውድቅ ተደርጓል (Rejected by Admin)!**",
+                reply_markup=None
+            ) if call.message.caption else bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"{call.message.text}\n\n❌ **ውድቅ ተደርጓል (Rejected by Admin)!**",
+                reply_markup=None
+            )
+
+            # ለተጠቃሚው ማሳወቂያ መላክ
+            bot.send_message(
+                user_id, 
+                "❌ **የክፍያ ደረሰኝዎ ውድቅ ተደርጓል!**\n\nእባክዎን ትክክለኛ የክፍያ ማረጋገጫ ወይም Screenshot መላክዎን ያረጋግጡ። ጥያቄ ካለዎት በ @Sealilenemariyammsle12we19 ያግኙን።"
+            )
+
+        elif data == 'go_main_menu':
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text="📚 **እንኳን ወደ «መንፈሳዊ ዲጂታል ቤተ-መጻሕፍት» በደኅና መጡ!**\n\nእባክዎ መጽሐፍትን በምን ቋንቋ ማንበብ ይፈልጋሉ?",
+                text="📚 **እንኳን ወደ «ዲጂታል ቤተ-መጻሕፍት» በደኅና መጡ!**\n\nእባክዎ መጽሐፍትን በምን ቋንቋ ማንበብ ይፈልጋሉ?",
                 reply_markup=get_language_inline_keyboard(),
                 parse_mode='Markdown'
             )
@@ -429,30 +521,26 @@ def handle_callback(call):
                 parse_mode='Markdown'
             )
 
-        # Get Book Logic
+        # GET BOOK LOGIC WITH AUTOMATIC PAYMENT CHECK
         elif data.startswith('get_geez_book_'):
             index = int(data.split('_')[-1])
             book = GEEZ_GUIDE_BOOKS[index]
-            bot.send_message(call.message.chat.id, f"ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n\"{book['title']}\"\n\nመልካም ንባብ ይሁንሎት! 📖✨")
-            bot.send_document(call.message.chat.id, book['file_id'])
+            check_access_and_send(call.message.chat.id, call.from_user.id, book['title'], book['file_id'])
 
         elif data.startswith('get_ga_ot_book_'):
             index = int(data.split('_')[-1])
             book = GEEZ_AMHARIC_OLD_TESTAMENT_BOOKS[index]
-            bot.send_message(call.message.chat.id, f"ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n\"{book['title']}\"\n\nመልካም ንባብ ይሁንሎት! 📖✨")
-            bot.send_document(call.message.chat.id, book['file_id'])
+            check_access_and_send(call.message.chat.id, call.from_user.id, book['title'], book['file_id'])
 
         elif data.startswith('get_gz_ot_book_'):
             index = int(data.split('_')[-1])
             book = GEEZ_OLD_TESTAMENT_BOOKS[index]
-            bot.send_message(call.message.chat.id, f"ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n\"{book['title']}\"\n\nመልካም ንባብ ይሁንሎት! 📖✨")
-            bot.send_document(call.message.chat.id, book['file_id'])
+            check_access_and_send(call.message.chat.id, call.from_user.id, book['title'], book['file_id'])
 
         elif data.startswith('get_ga_nt_book_'):
             index = int(data.split('_')[-1])
             book = GEEZ_AMHARIC_NEW_TESTAMENT_BOOKS[index]
-            bot.send_message(call.message.chat.id, f"ለማንበብ የፈለጉት መጽሐፍ ይኸው፦\n\"{book['title']}\"\n\nመልካም ንባብ ይሁንሎት! 📖✨")
-            bot.send_document(call.message.chat.id, book['file_id'])
+            check_access_and_send(call.message.chat.id, call.from_user.id, book['title'], book['file_id'])
 
         elif data.startswith('cat_') or data.startswith('sub_'):
             is_eng = 'english' in data
@@ -473,11 +561,9 @@ def handle_callback(call):
 # ==========================================
 # DOCUMENT UPLOAD HANDLER (ADMIN ONLY)
 # ==========================================
-
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
-    sender_username = message.from_user.username
-    if sender_username and sender_username.lower() == ADMIN_USERNAME.lower():
+    if message.from_user.id == ADMIN_CHAT_ID:
         file_id = message.document.file_id
         file_name = message.document.file_name
         bot.reply_to(
@@ -488,20 +574,10 @@ def handle_document(message):
     else:
         bot.reply_to(message, "መጽሐፍ ለማስገባት ጥቆማ ካለዎት እባክዎ በ Feedback መስመር ያድርሱን።")
 
-# Fallback Handler for text messages
-@bot.message_handler(func=lambda message: True)
-def handle_unknown(message):
-    bot.send_message(
-        message.chat.id, 
-        "ይቅርታ፣ የተላከውን መልእክት መረዳት አልተቻለም። እባክዎ ከታች ያሉትን አማራጮች ይጠቀሙ፦", 
-        reply_markup=get_main_reply_keyboard()
-    )
-
 # ==========================================
 # APP LAUNCH
 # ==========================================
-
 if __name__ == '__main__':
     keep_alive()
-    print("Bot is starting...")
-    bot.infinity_polling(timeout=20, long_polling_timeout=10)
+    print("Bot is started and running with Auto-Approval Loop...")
+    bot.infinity_polling(skip_pending=True)
