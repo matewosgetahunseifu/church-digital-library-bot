@@ -1,4 +1,5 @@
 import os
+import difflib
 from threading import Thread
 from flask import Flask
 import telebot
@@ -22,7 +23,7 @@ def keep_alive():
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8777005011:AAHi7FXjLXk9QkRBzylmzsLqYj7dRC1PR_Y')
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Admin Username (ለደህንነት የተገደበ)
+# Admin Username
 ADMIN_USERNAME = 'Sealilenemariyammsle12we19'
 
 # ==========================================
@@ -241,13 +242,9 @@ def handle_feedback_start(message):
     bot.register_next_step_handler(msg, process_feedback)
 
 def process_feedback(message):
-    user_info = f"👤 **ከ፦** {message.from_user.first_name} (@{message.from_user.username or 'No Username'}) [ID: `{message.from_user.id}`]\n\n"
-    feedback_text = user_info + f"💬 **አስተያየት፦**\n{message.text}"
-    
-    # Send feedback to Admin username if reachable, or print internally
     bot.send_message(message.chat.id, "✅ **አስተያየትዎ ደርሶናል!** ስላገዙን እናመሰግናለን።", parse_mode='Markdown')
 
-# Search System
+# Smart Search System (ከፊደል ስህተት ማስተካከያ ጋር)
 @bot.message_handler(commands=['search'])
 @bot.message_handler(func=lambda message: message.text == '🔍 መጽሐፍ ፈልግ')
 def handle_search_start(message):
@@ -258,13 +255,35 @@ def process_search(message):
     query = message.text.strip().lower()
     results = []
     
+    # 1. ቀጥታ የሚመሳሰሉትን መፈለግ
     for book_list in ALL_BOOKS_LISTS:
         for book in book_list:
             if query in book['title'].lower():
                 results.append(book)
                 
+    # 2. ቀጥታ ካልተገኘ የተሳሳተ ፊደል (Fuzzy Match) መኖሩን መፈተሽ
     if not results:
-        bot.send_message(message.chat.id, f"❌ <b>'{message.text}'</b> በሚል ቃል የተገኘ መጽሐፍ የለም። እባክዎ እንደገና ይሞክሩ።", parse_mode='HTML')
+        all_titles = []
+        for book_list in ALL_BOOKS_LISTS:
+            for book in book_list:
+                all_titles.append(book['title'])
+        
+        matches = difflib.get_close_matches(message.text.strip(), all_titles, n=3, cutoff=0.3)
+        
+        if matches:
+            for matched_title in matches:
+                for book_list in ALL_BOOKS_LISTS:
+                    for book in book_list:
+                        if book['title'] == matched_title and book not in results:
+                            results.append(book)
+
+    # 3. የፍለጋ ውጤቱን መላክ
+    if not results:
+        bot.send_message(
+            message.chat.id, 
+            f"❌ <b>'{message.text}'</b> በሚል ቃል የተገኘ መጽሐፍ የለም። እባክዎ ትክክለኛውን የመጽሐፍ ስም ጽፈው እንደገና ይሞክሩ።", 
+            parse_mode='HTML'
+        )
     else:
         bot.send_message(message.chat.id, f"🔍 <b>የተገኙ መጻሕፍት ({len(results)})፦</b>", parse_mode='HTML')
         for book in results:
