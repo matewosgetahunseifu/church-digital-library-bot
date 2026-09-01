@@ -16,11 +16,9 @@ from telegram.ext import (
 # 1. CONFIGURATION & ENVIRONMENT SETUP
 # ==========================================
 
-# Telegram Chat ID እና Bot Token (በደህንነት ምክንያት ከ Environment Variable ቢያነብ ይመረጣል)
 ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", 7480368503))
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 
-# Render (Linux Server) ላይ Tesseract Pathን በራስ-ሰር ለመለየት
 if os.path.exists('/usr/bin/tesseract'):
     pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
@@ -82,7 +80,6 @@ MENU_STRUCTURE = {
             "ታሪክ": {"books": []},
             "ድርሳን፣ ገድልና ተአምር": {"books": []}
         },
-        "ክርስቲያናዊ ሥነ ምግባር": {"books": []},
         "የመጽሐፍ ቅዱስ ክፍል": {
             "የብሉይ ኪዳን መጻሕፍት": {
                 "books": [
@@ -102,7 +99,6 @@ MENU_STRUCTURE = {
             "ታሪክ": {"books": []},
             "ድርሳን፣ ገድልና ተአምር": {"books": []}
         },
-        "ክርስቲያናዊ ሥነ ምግባር": {"books": []},
         "የመጽሐፍ ቅዱስ ክፍል": {
             "የብሉይ ኪዳን መጻሕፍት": {
                 "books": [
@@ -260,6 +256,31 @@ MENU_STRUCTURE = {
     }
 }
 
+# 64-Byte Callback Limit ለመጠበቅ የሚረዳ Indexing አሰራር
+PATH_MAP = {}
+REVERSE_PATH_MAP = {}
+
+def build_path_map(node, current_path=()):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "books":
+                continue
+            new_path = current_path + (key,)
+            path_str = " > ".join(new_path)
+            if path_str not in PATH_MAP:
+                idx = str(len(PATH_MAP))
+                PATH_MAP[path_str] = idx
+                REVERSE_PATH_MAP[idx] = new_path
+            build_path_map(value, new_path)
+
+build_path_map(MENU_STRUCTURE)
+
+def get_node_by_path(path_tuple):
+    curr = MENU_STRUCTURE
+    for step in path_tuple:
+        curr = curr[step]
+    return curr
+
 # ==========================================
 # 4. OCR HELPER
 # ==========================================
@@ -304,7 +325,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = []
     for lang in MENU_STRUCTURE.keys():
-        keyboard.append([InlineKeyboardButton(lang, callback_data=f"nav|{lang}")])
+        idx = PATH_MAP[" > ".join((lang,))]
+        keyboard.append([InlineKeyboardButton(lang, callback_data=f"n|{idx}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("📚 **መንፈሳዊ መጽሐፍት**\nእባክዎን ቋንቋ ወይም ክፍል ይምረጡ / Choose section:", reply_markup=reply_markup, parse_mode="Markdown")
@@ -328,21 +350,24 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("⚠️ ፋይሉ ገና ወደ ቦቱ አልተጫነም (File ID is missing).")
         return
 
-    if data.startswith("nav|"):
-        path = data.split("|")[1:]
-        
-        curr = MENU_STRUCTURE
-        for step in path:
-            curr = curr[step]
+    if data.startswith("n|"):
+        idx = data.split("|")[1]
+        path_tuple = REVERSE_PATH_MAP[idx]
+        curr = get_node_by_path(path_tuple)
+
+        parent_path = path_tuple[:-1]
+        if parent_path:
+            parent_path_str = " > ".join(parent_path)
+            parent_idx = PATH_MAP[parent_path_str]
+            back_cb = f"n|{parent_idx}"
+        else:
+            back_cb = "main"
 
         if isinstance(curr, dict) and "books" in curr:
             books = curr["books"]
             if not books:
-                is_english = path[0] == "🇬🇧 English"
+                is_english = path_tuple[0] == "🇬🇧 English"
                 empty_msg = "(No books added to this section yet)" if is_english else "⚠️ በዚህ ክፍል እስካሁን የገቡ መጽሐፍት የሉም።"
-                
-                parent_path = "|".join(path[:-1])
-                back_cb = f"nav|{parent_path}" if parent_path else "main"
                 kb = [[InlineKeyboardButton("🔙 ወደ ኋላ (Back)", callback_data=back_cb)]]
                 await query.edit_message_text(text=empty_msg, reply_markup=InlineKeyboardMarkup(kb))
                 return
@@ -351,12 +376,10 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for b in books:
                 keyboard.append([InlineKeyboardButton(f"📖 {b['title']}", callback_data=f"book|{b['id']}")])
             
-            parent_path = "|".join(path[:-1])
-            back_cb = f"nav|{parent_path}" if parent_path else "main"
             keyboard.append([InlineKeyboardButton("🔙 ወደ ኋላ (Back)", callback_data=back_cb)])
             
             await query.edit_message_text(
-                text=f"📚 **{path[-1]}** - የሚፈልጉትን መጽሐፍ ይምረጡ፡",
+                text=f"📚 **{path_tuple[-1]}** - የሚፈልጉትን መጽሐፍ ይምረጡ፡",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown"
             )
@@ -365,15 +388,14 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if isinstance(curr, dict):
             keyboard = []
             for sub_key in curr.keys():
-                new_path = "|".join(path + [sub_key])
-                keyboard.append([InlineKeyboardButton(sub_key, callback_data=f"nav|{new_path}")])
+                new_path_str = " > ".join(path_tuple + (sub_key,))
+                sub_idx = PATH_MAP[new_path_str]
+                keyboard.append([InlineKeyboardButton(sub_key, callback_data=f"n|{sub_idx}")])
             
-            parent_path = "|".join(path[:-1])
-            back_cb = f"nav|{parent_path}" if parent_path else "main"
             keyboard.append([InlineKeyboardButton("🔙 ወደ ኋላ (Back)", callback_data=back_cb)])
             
             await query.edit_message_text(
-                text=f"📂 **{path[-1]}** - ክፍል ይምረጡ፡",
+                text=f"📂 **{path_tuple[-1]}** - ክፍል ይምረጡ፡",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown"
             )
@@ -382,7 +404,8 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "main":
         keyboard = []
         for lang in MENU_STRUCTURE.keys():
-            keyboard.append([InlineKeyboardButton(lang, callback_data=f"nav|{lang}")])
+            idx = PATH_MAP[" > ".join((lang,))]
+            keyboard.append([InlineKeyboardButton(lang, callback_data=f"n|{idx}")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text("📚 **መንፈሳዊ መጽሐፍት**\nእባክዎን ቋንቋ ወይም ክፍል ይምረጡ / Choose section:", reply_markup=reply_markup, parse_mode="Markdown")
 
