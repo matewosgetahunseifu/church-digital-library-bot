@@ -1,5 +1,7 @@
 import os
 import sqlite3
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import pytesseract
 from PIL import Image
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -13,14 +15,30 @@ from telegram.ext import (
 )
 
 # ==========================================
+# 0. UPTIME ROBOT / DUMMY HTTP SERVER (KEEP ALIVE)
+# ==========================================
+
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    server.serve_forever()
+
+# HTTP Server በ Background እንዲሰራ ማስነሳት
+threading.Thread(target=run_dummy_server, daemon=True).start()
+
+# ==========================================
 # 1. CONFIGURATION & ENVIRONMENT SETUP
 # ==========================================
 
-# Telegram Chat ID እና Bot Token (በደህንነት ምክንያት ከ Environment Variable ቢያነብ ይመረጣል)
 ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", 7480368503))
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# Render (Linux Server) ላይ Tesseract Pathን በራስ-ሰር ለመለየት
 if os.path.exists('/usr/bin/tesseract'):
     pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
@@ -291,17 +309,7 @@ def get_book_by_id(data, book_id):
 # ==========================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not is_user_approved(user_id):
-        msg = (
-            "⚠️ አገልግሎቱን ለማግኘት አስቀድመው የባንክ ደረሰኝ (Bank Receipt) መላክ አለብዎት።\n"
-            "እባክዎን የከፈሉበትን ደረሰኝ ፎቶ አሁኑኑ ይላኩ።\n\n"
-            "⚠️ To access the books, please upload your Bank Receipt photo first."
-        )
-        await update.message.reply_text(msg)
-        return
-
+    # /start ሲባል ሁሉም ሰው ሜኑዎችን እንዲያይ ተፈቅዷል
     keyboard = []
     for lang in MENU_STRUCTURE.keys():
         keyboard.append([InlineKeyboardButton(lang, callback_data=f"nav|{lang}")])
@@ -314,8 +322,19 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     data = query.data
+    user_id = query.from_user.id
 
+    # መጽሐፍ ለማውረድ ሲሞክሩ ክፍያ ማረጋገጥ
     if data.startswith("book|"):
+        if not is_user_approved(user_id):
+            pay_msg = (
+                "⚠️ ይህንን መጽሐፍ ለማውረድ አስቀድመው የባንክ ደረሰኝ (Bank Receipt) መላክ አለብዎት።\n"
+                "እባክዎን የከፈሉበትን ደረሰኝ ፎቶ አሁኑኑ ይላኩ።\n\n"
+                "⚠️ To download this book, please upload your Bank Receipt photo first."
+            )
+            await query.message.reply_text(pay_msg)
+            return
+
         book_id = data.split("|")[1]
         book = get_book_by_id(MENU_STRUCTURE, book_id)
         if book and book.get("file_id") and book["file_id"] != "FILE_ID_HERE":
@@ -328,6 +347,7 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("⚠️ ፋይሉ ገና ወደ ቦቱ አልተጫነም (File ID is missing).")
         return
 
+    # ሜኑዎችን የማሰስ/የማየት ሂደት (ለማንኛውም ሰው ክፍት ነው)
     if data.startswith("nav|"):
         path = data.split("|")[1:]
         
