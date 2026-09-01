@@ -16,8 +16,9 @@ from telegram.ext import (
 # 1. CONFIGURATION & ENVIRONMENT SETUP
 # ==========================================
 
-ADMIN_CHAT_ID = 7480368503  # ⚠️ የቦቱ ባለቤት Telegram Chat ID እዚህ ይተኩ (@userinfobot ላይ ያገኙታል)
-BOT_TOKEN = "8777005011:AAHi7FXjLXk9QkRBzylmzsLqYj7dRC1PR_Y"  # ⚠️ የቦት ቶከንዎን እዚህ ይተኩ (@BotFather)
+# Telegram Chat ID እና Bot Token (በደህንነት ምክንያት ከ Environment Variable ቢያነብ ይመረጣል)
+ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", 7480368503))
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8777005011:AAHi7FXjLXk9QkRBzylmzsLqYj7dRC1PR_Y")
 
 # Render (Linux Server) ላይ Tesseract Pathን በራስ-ሰር ለመለየት
 if os.path.exists('/usr/bin/tesseract'):
