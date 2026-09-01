@@ -13,11 +13,15 @@ from telegram.ext import (
 )
 
 # ==========================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION & ENVIRONMENT SETUP
 # ==========================================
 
-ADMIN_CHAT_ID = 123456789  # ⚠️ የቦቱ ባለቤት Telegram Chat ID እዚህ ይተኩ (@userinfobot ላይ ያገኙታል)
+ADMIN_CHAT_ID = 7480368503  # ⚠️ የቦቱ ባለቤት Telegram Chat ID እዚህ ይተኩ (@userinfobot ላይ ያገኙታል)
 BOT_TOKEN = "8777005011:AAHi7FXjLXk9QkRBzylmzsLqYj7dRC1PR_Y"  # ⚠️ የቦት ቶከንዎን እዚህ ይተኩ (@BotFather)
+
+# Render (Linux Server) ላይ Tesseract Pathን በራስ-ሰር ለመለየት
+if os.path.exists('/usr/bin/tesseract'):
+    pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
 # ==========================================
 # 2. SQLITE DATABASE SETUP
@@ -264,10 +268,10 @@ def is_bank_receipt(image_path: str) -> bool:
         text = pytesseract.image_to_string(Image.open(image_path)).lower()
         keywords = ["cbe", "telebirr", "bank", "transfer", "transaction", "ref", "account", "receipt", "deposited", "ebirr", "boa", "dashen"]
         return any(k in text for k in keywords)
-    except Exception:
+    except Exception as e:
+        print(f"OCR Error: {e}")
         return False
 
-# Dynamic Lookup helper for books
 def get_book_by_id(data, book_id):
     if isinstance(data, dict):
         if "books" in data:
@@ -297,7 +301,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
         return
 
-    # Main Languages Keyboard
     keyboard = []
     for lang in MENU_STRUCTURE.keys():
         keyboard.append([InlineKeyboardButton(lang, callback_data=f"nav|{lang}")])
@@ -311,7 +314,6 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = query.data
 
-    # Handle Book Sending
     if data.startswith("book|"):
         book_id = data.split("|")[1]
         book = get_book_by_id(MENU_STRUCTURE, book_id)
@@ -325,7 +327,6 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text("⚠️ ፋይሉ ገና ወደ ቦቱ አልተጫነም (File ID is missing).")
         return
 
-    # Handle Menu Navigation
     if data.startswith("nav|"):
         path = data.split("|")[1:]
         
@@ -333,21 +334,18 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for step in path:
             curr = curr[step]
 
-        # Case 1: Terminal level with books array
         if isinstance(curr, dict) and "books" in curr:
             books = curr["books"]
             if not books:
                 is_english = path[0] == "🇬🇧 English"
                 empty_msg = "(No books added to this section yet)" if is_english else "⚠️ በዚህ ክፍል እስካሁን የገቡ መጽሐፍት የሉም።"
                 
-                # Back button back to previous level
                 parent_path = "|".join(path[:-1])
                 back_cb = f"nav|{parent_path}" if parent_path else "main"
                 kb = [[InlineKeyboardButton("🔙 ወደ ኋላ (Back)", callback_data=back_cb)]]
                 await query.edit_message_text(text=empty_msg, reply_markup=InlineKeyboardMarkup(kb))
                 return
             
-            # Show book list
             keyboard = []
             for b in books:
                 keyboard.append([InlineKeyboardButton(f"📖 {b['title']}", callback_data=f"book|{b['id']}")])
@@ -363,7 +361,6 @@ async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # Case 2: Submenu level containing dictionaries
         if isinstance(curr, dict):
             keyboard = []
             for sub_key in curr.keys():
@@ -394,9 +391,11 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"receipt_{user.id}.jpg"
     await photo_file.download_to_drive(file_path)
 
-    # ደረሰኝ መሆኑን ማረጋገጥ
     if not is_bank_receipt(file_path):
-        await update.message.delete()  # አውቶማቲክ ስረዛ
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
         
         warning_msg = (
             "❌ ይህ የባንክ ደረሰኝ (Bank Receipt) አይደለም! እባክዎን ትክክለኛ የባንክ ደረሰኝ ያስገቡ።\n\n"
@@ -407,7 +406,6 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(file_path)
         return
 
-    # ትክክለኛ ከሆነ ለአድሚን መላክ
     admin_keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("✅ Approve", callback_data=f"approve_{user.id}"),
@@ -416,18 +414,20 @@ async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     
     username_str = f"@{user.username}" if user.username else "የለውም"
-    await context.bot.send_photo(
-        chat_id=ADMIN_CHAT_ID,
-        photo=open(file_path, 'rb'),
-        caption=(
-            f"📥 **አዲስ የክፍያ ደረሰኝ ተልኳል**\n\n"
-            f"👤 **ተጠቃሚ:** {user.full_name}\n"
-            f"🆔 **ID:** `{user.id}`\n"
-            f"🔗 **Username:** {username_str}"
-        ),
-        reply_markup=admin_keyboard,
-        parse_mode="Markdown"
-    )
+    
+    with open(file_path, 'rb') as photo:
+        await context.bot.send_photo(
+            chat_id=ADMIN_CHAT_ID,
+            photo=photo,
+            caption=(
+                f"📥 **አዲስ የክፍያ ደረሰኝ ተልኳል**\n\n"
+                f"👤 **ተጠቃሚ:** {user.full_name}\n"
+                f"🆔 **ID:** `{user.id}`\n"
+                f"🔗 **Username:** {username_str}"
+            ),
+            reply_markup=admin_keyboard,
+            parse_mode="Markdown"
+        )
 
     wait_msg = (
         "✅ ደረሰኝዎ ደርሶናል! የቦቱ ባለቤት አረጋግጦ (Approve አድርጎ) እስኪያጠናቅቅ ድረስ በአክብሮት እንድትጠብቁ እንጠይቃለን።\n\n"
@@ -476,7 +476,6 @@ async def handle_admin_decision(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_caption(caption=query.message.caption + "\n\n❌ **REJECTED (ውድቅ ተደርጓል)**")
 
 async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ለቀደሙት ተጠቃሚዎች በሙሉ መልእክት መላኪያ (/broadcast <message>)"""
     if update.effective_user.id != ADMIN_CHAT_ID:
         return
 
@@ -497,14 +496,12 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ መልእክቱ ለ {count} ተጠቃሚዎች ተልኳል።")
 
 async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የተመዘገቡ ተጠቃሚዎች ብዛት ማየቻ (/stats)"""
     if update.effective_user.id != ADMIN_CHAT_ID:
         return
     users = get_all_approved_users()
     await update.message.reply_text(f"📊 **የተመዘገቡ የከፈሉ ተጠቃሚዎች ብዛት፦** {len(users)}")
 
 async def manual_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """በአድሚን ID ፈቃድ መስጫ (/approve_user <id>)"""
     if update.effective_user.id != ADMIN_CHAT_ID or not context.args:
         return
     target_id = int(context.args[0])
@@ -512,7 +509,6 @@ async def manual_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ ተጠቃሚ ID {target_id} ጸድቋል።")
 
 async def manual_revoke(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """በአድሚን ID ፈቃድ መንሻ (/revoke_user <id>)"""
     if update.effective_user.id != ADMIN_CHAT_ID or not context.args:
         return
     target_id = int(context.args[0])
