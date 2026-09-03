@@ -1,571 +1,660 @@
+import asyncio
+import io
+import logging
 import os
+import re
 import sqlite3
-import pytesseract
-from PIL import Image
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
-    ContextTypes
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+from aiiohttp import web
+from rapidfuzz import process, fuzz
+from telegram import (
+    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update,
 )
+from telegram.constants import ParseMode
+from telegram.error import NetworkError, RetryAfter, TimedOut, TelegramError
+from telegram.ext import (
+    Application, CallbackQueryHandler, CommandHandler, ContextTypes,
+    ConversationHandler, MessageHandler, filters,
+)
+try:
+    import psycopg
+    POSTGRES_AVAILABLE = True
+except ImportError:
+    POSTGRES_AVAILABLE = False
 
-# ==========================================
-# 1. CONFIGURATION & ENVIRONMENT SETUP
-# ==========================================
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
 
-ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", 7480368503))
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    level=logging.INFO,
+)
+log = logging.getLogger("orthodox-bot")
 
-if os.path.exists('/usr/bin/tesseract'):
-    pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+ADMIN_USER_ID = 7480368503
+ADMIN_USERNAME = "@Sealilenemariyammsle12we19"
+PRICE = 200
+BOT_USERNAME = os.getenv("BOT_USERNAME", "OrthodoxSpiritualBooksBot")
+TELEGRAM_CONTACT = "@Sealilenemariyammsle12we19"
+EMAIL = "matewosgetahunseifu@gmail.com"
+PORT = int(os.getenv("PORT", "10000"))
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+SQLITE_PATH = os.getenv("SQLITE_PATH", "data/bot.db")
 
-# ==========================================
-# 2. SQLITE DATABASE SETUP
-# ==========================================
+# Conversation states
+SEARCH = 1
+RECEIPT = 2
+ADMIN_TITLE = 3
+ADMIN_CATEGORY = 4
 
-def init_db():
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS approved_users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            full_name TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+PAYMENT_TEXT = """የኦርቶዶክስ መንፈሳዊ መጽሐፍት ሁሉንም የመጽሐፍ ዓይነቶች (በግዕዝ፣ በአማርኛ፣ 
+በግዕዝ አማርኛ፣ የግዕዝ ቋንቋ) ሙሉ በሙሉ ለመጠቀም 200 (ሁለት መቶ) ብር አንድ ጊዜ ብቻ ይክፈሉ። 💳 የክፍያ 
+መንገዶች፦ • አሐዱ ባንክ፦ 0100775011101 • የኢትዮጵያ ንግድ ባንክ (CBE)፦ 1000661046841 • አቢሲንያ 
+ባንክ፦ 57080698 👤 የአካውንት ስም፦ Matewos Getahun Seifu ክፍያ እንደፈጸሙ የባንክ ሪሲት (Receipt 
+Photo/Document) ወደዚህ ቦት ይላኩ።"""
 
-def is_user_approved(user_id: int) -> bool:
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM approved_users WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result is not None
-
-def add_approved_user(user_id: int, username: str, full_name: str):
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO approved_users VALUES (?, ?, ?)", (user_id, username, full_name))
-    conn.commit()
-    conn.close()
-
-def remove_approved_user(user_id: int):
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM approved_users WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-
-def get_all_approved_users():
-    conn = sqlite3.connect("bot_database.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM approved_users")
-    users = cursor.fetchall()
-    conn.close()
-    return [u[0] for u in users]
-
-# ==========================================
-# 3. COMPLETE BOOKS & MENU STRUCTURE
-# ==========================================
-
-MENU_STRUCTURE = {
-    "📜 ግእዝ": {
-        "ሕግና ሥርዓት": {"books": []},
-        "ታሪክና ድርሳናት": {
-            "ታሪክ": {"books": []},
-            "ድርሳን፣ ገድልና ተአምር": {"books": []}
-        },
-        "ክርስቲያናዊ ሥነ ምግባር": {"books": []},
-        "የመጽሐፍ ቅዱስ ክፍል": {
-            "የብሉይ ኪዳን መጻሕፍት": {
-                "books": [
-                    {
-                        "id": "gz_ot_1",
-                        "title": "፭ቱ መጽሐፈ ኦሪት ብራና አንድምታ",
-                        "file_id": "BQACAgQAAxkBAAP4apL8OXANqEqvyGn7V4Lk_C1rDygAAn0JAAIWA9hQayRhNPpVNvE9BA"
-                    }
-                ]
-            },
-            "የሐዲስ ኪዳን መጻሕፍት": {"books": []}
-        }
-    },
-    "🇪🇹 ግእዝ-አማርኛ": {
-        "ሕግና ሥርዓት": {"books": []},
-        "ታሪክና ድርሳናት": {
-            "ታሪክ": {"books": []},
-            "ድርሳን፣ ገድልና ተአምር": {"books": []}
-        },
-        "ክርስቲያናዊ ሥነ ምግባር": {"books": []},
-        "የመጽሐፍ ቅዱስ ክፍል": {
-            "የብሉይ ኪዳን መጻሕፍት": {
-                "books": [
-                    {
-                        "id": "ga_ot_1",
-                        "title": "ኦሪት ዘፍጥረት አንድምታ",
-                        "file_id": "BQACAgQAAxkBAAPoapL5-j4Y4yKee0lyFZlMHif5UoAAAgcKAAKjPElSpWxXt7rSOxk9BA"
-                    },
-                    {
-                        "id": "ga_ot_2",
-                        "title": "ኦሪት ዘፀአት አንድምታ",
-                        "file_id": "BQACAgQAAxkBAAPpapL5-mx2OLB_jMKwjJx8isE-LRAAAggKAAKjPElSdkt4uS3PouI9BA"
-                    },
-                    {
-                        "id": "ga_ot_3",
-                        "title": "ኦሪት ዘሌዋውያን አንድምታ",
-                        "file_id": "BQACAgQAAxkBAAPqapL5-mUjkfP8bzTvar9D5ZmjeIwAAvUKAAL6HClR9oG7Bfn__tI9BA"
-                    },
-                    {
-                        "id": "ga_ot_4",
-                        "title": "ኦሪት ዘኍልቅ አንድምታ",
-                        "file_id": "BQACAgQAAxkBAAPrapL5-vSTNfOEAAEE0CwlPjz-oH1cAAIKCgACozxJUstPvw26Lpm9PQQ"
-                    },
-                    {
-                        "id": "ga_ot_5",
-                        "title": "ኦሪት ዘዳግም አንድምታ",
-                        "file_id": "BQACAgQAAxkBAAPsapL5-qt3Lcu5lWpCIB8LZ9ly_V8AAgsKAAKjPElSKmH6OAPSIR49BA"
-                    }
-                ]
-            },
-            "የሐዲስ ኪዳን መጻሕፍት": {"books": []}
-        }
-    },
-    "📖 የግእዝ ቋንቋ መማሪያ": {
-        "books": [
-            {
-                "id": "l_1",
-                "title": "መጽሐፈ ሰዋስው ወግስ ወመዝገበ ቃላት ሐዲስ (አለቃ ኪዳነ ወልድ ክፍሌ)",
-                "file_id": "BQACAgQAAxkBAAOiapLEYe5R4ZxJ8_3PQZ-SHO6NA4sAAqofAAI12zhQV3FkwrOJJtc9BA"
-            },
-            {
-                "id": "l_2",
-                "title": "ግእዝ እንግሊዝኛ ኦገስት ዲልማን",
-                "file_id": "BQACAgQAAxkBAAOvapLOTuM_iJ5-xleFbnGNgDLeJzAAAqAhAAKba2BQb49RMRsZf_49BA"
-            },
-            {
-                "id": "l_3",
-                "title": "ግስ እምባቆብ",
-                "file_id": "BQACAgQAAxkBAAOxapLOToEwCL4K_RHREKweqU9_buMAAlgGAALy24lQiHGMdWTQj_I9BA"
-            },
-            {
-                "id": "l_4",
-                "title": "መጽሐፈ ግእዝ",
-                "file_id": "BQACAgQAAxkBAAOyapLOTqigZoRB37TkUs3YBzjgx0oAAmwQAAKDKPFTW2HbAekftKU9BA"
-            },
-            {
-                "id": "l_5",
-                "title": "ጥንታዊ ግእዝ በዘመናዊ አቀራረብ (ካልኣይ ክፍል)",
-                "file_id": "BQACAgQAAxkBAAOwapLOTnyZqs5q3YoQooXwdQLLdhkAAqUhAAKba2BQrTKlP3O6ohg9BA"
-            },
-            {
-                "id": "l_6",
-                "title": "ትንሳዔ ግእዝ (መምህር ደሴ ቀለብ)",
-                "file_id": "BQACAgQAAxkBAAOzapLOTgKDH7A6tfXemG-zjjdcj8oAAvsBAAKh56lQKVEyEdzzV7Y9BA"
-            },
-            {
-                "id": "l_7",
-                "title": "ፍሬ ግእዝ",
-                "file_id": "BQACAgQAAxkBAAO0apLOTkraJZeY7MMSjeoRi9huctAAAvEQAAL0ZllRd1T8Cz3MfR89BA"
-            },
-            {
-                "id": "l_8",
-                "title": "ግእዝ እንበለ መምህር",
-                "file_id": "BQACAgQAAxkBAAO1apLOTgLec1zclkRUTQU9IcZIAeMAAlsZAALmW4FQynTLeSEqAZQ9BA"
-            },
-            {
-                "id": "l_9",
-                "title": "የግእዝ ሰዋሰው (ዓለማየሁ ሞገስ)",
-                "file_id": "BQACAgQAAxkBAAO2apLOTl-cs3ftddnQSFcTg0ZxE1cAAoshAAKba2BQCmlU5vYhiKo9BA"
-            },
-            {
-                "id": "l_10",
-                "title": "ግእዝ መማሪያ መጽሐፍ",
-                "file_id": "BQACAgQAAxkBAAO3apLOTm6QfeRlG6uKjTMJ4zx96ooAAocHAAJyFMhT0rbd1ZaTvsY9BA"
-            },
-            {
-                "id": "l_11",
-                "title": "ግዕዝ መሠረተ ትምህርት (ደስታ ተክለወልድ)",
-                "file_id": "BQACAgQAAxkBAAO4apLOTpmweUFZNie-aTlg5hoTx2MAAqECAAKpJdlS5zKDZrrocvA9BA"
-            },
-            {
-                "id": "l_12",
-                "title": "የግእዝ መማሪያ (ዶ/ር ለይኩን ብርሀኑ)",
-                "file_id": "BQACAgQAAxkBAAO5apLOTn5wYdAKlzCSp2FmCNQD_-YAArUGAAJv75lRsafLj8CJxmM9BA"
-            },
-            {
-                "id": "l_13",
-                "title": "ሰዋስወ ግእዝ ወአንቀጽ",
-                "file_id": "BQACAgQAAxkBAAO6apLOToQiuej6WJBDqZP3j_YAAWppAALKFQAC2aVxUmuX4vLb4xyBPQQ"
-            },
-            {
-                "id": "l_14",
-                "title": "መርኆ ሰዋስው ዘልሳነ ግእዝ",
-                "file_id": "BQACAgQAAxkBAAO7apLOTluw2HKlQ3pbSGzD2_riMcIAAikYAAJds_lQWZXHtP7ylCE9BA"
-            },
-            {
-                "id": "l_15",
-                "title": "መዝገበ ግስ (ሁሉንም ግስ በአንድ የያዘ)",
-                "file_id": "BQACAgQAAxkBAAO8apLOTjpUoaE4ZWHGHe813QABMrsyAALWGAACm_fpUfxpVw9o_4grPQQ"
-            },
-            {
-                "id": "l_16",
-                "title": "መጽሐፈ ሰዋስው",
-                "file_id": "BQACAgQAAxkBAAO9apLOThplHgQeqctpal2rVuqMU-8AAq8cAAIe9uFQcwlbPLpGfUc9BA"
-            }
-        ]
-    },
-    "🇪🇹 አማርኛ": {
-        "ሕግና ሥርዓት": {"books": []},
-        "ታሪክና ድርሳናት": {
-            "ታሪክ": {"books": []},
-            "ድርሳን፣ ገድልና ተአምር": {"books": []}
-        },
-        "ነገረ ሃይማኖት": {
-            "ነገረ ቅዱሳን": {"books": []},
-            "ነገረ ማርያም / ድኅነት": {"books": []},
-            "ነገረ ክርስቶስ": {"books": []},
-            "ነገረ ሃይማኖት": {"books": []}
-        },
-        "ክርስቲያናዊ ሥነ ምግባር": {"books": []},
-        "የመጽሐፍ ቅዱስ ክፍል": {
-            "የብሉይ ኪዳን መጻሕፍት": {"books": []},
-            "የሐዲስ ኪዳን መጻሕፍት": {"books": []},
-            "የመጽሐፍ ቅዱስ ጥናት": {"books": []}
-        }
-    },
-    "🇬🇧 English": {
-        "Law & Order": {"books": []},
-        "History & Discourse": {
-            "History": {"books": []},
-            "Discourse, Hagiography & Miracles": {"books": []}
-        },
-        "Theology": {
-            "Patristics / Saints": {"books": []},
-            "Mariology / Soteriology": {"books": []},
-            "Christology": {"books": []},
-            "Theology": {"books": []}
-        },
-        "Christian Ethics": {"books": []},
-        "Holy Bible Section": {
-            "Old Testament Books": {"books": []},
-            "New Testament Books": {"books": []},
-            "Bible Study": {"books": []}
-        }
-    }
+LANGUAGES = {
+    "lang_geez": "በግዕዝ",
+    "lang_geez_amh": "በግዕዝ አማርኛ",
+    "lang_geez_learn": "የግዕዝ ቋንቋ መማሪያ",
+    "lang_amh": "በአማርኛ",
+    "lang_en": "በእንግሊዝ",
 }
 
-# 64-Byte Limit ችግርን ለመፍታት የበተን መንገዶችን (Paths) በደህና መታወቂያ (Index) የሚቀይር አሰራር
-PATH_MAP = {}
-REVERSE_PATH_MAP = {}
+CATEGORIES = {
+    "lang_geez": {
+        "description": "በግዕገ ቋንቋ የህግ እና የስርእት መጽሐፍ ምን ማንበብ ይፈልጋሉ?",
+        "cats": {
+            "ህግና ስርእት": "በግዕገ ቋንቋ የህግ እና የስርእት መጽሐፍ ምን ማንበብ ይፈልጋሉ?",
+            "ታሪክ": "በግዕገ ቋንቋ ከታሪክ መጽሐፍ ምን ማንበብ ይፈልጋሉ?",
+            "ገድል ተአምር እና ድርሳን": "በግዕገ ቋንቋ ምን አይነት ገድል ተአምር እና ድርሳን ማንበብ ይፈልጋሉ?",
+            "የብሉይ ኪዳን መጻሕፍት": "በግዕገ ቋንቋ ከብሉይ ኪዳን ምን ማንበብ ይፈልጋሉ?",
+            "የአዲስ ኪዳን መጻሕፍት": "በግዕገ ቋንቋ ከአዲስ ኪዳን መጻሕፍት ምን ማንበብ ይፈልጋሉ?",
+        },
+    },
+    "lang_geez_amh": {
+        "description": "በግዕገ አማርኛ መጽሐፍ ምን ማንበብ ይፈልጋሉ?",
+        "cats": {
+            "ህግና ስርእት": "በግዕገ አማርኛ የህግና ስርእት መጽሐፍ ምን ማንበብ ይፈልጋሉ?",
+            "ታሪክ": "በግዕገ አማርኛ ከታሪክ መጽሐፍ ምን ማንበብ ይፈልጋሉ?",
+            "ገድል ተአምር እና ድርሳን": "በግዕገ አማርኛ ምን አይነት ገድል ተአምር እና ድርሳን ማንበብ ይፈልጋሉ?",
+            "የብሉይ ኪዳን መጻሕፍት": "በግዕገ አማርኛ ከብሉይ ኪዳን ምን ማንበብ ይፈልጋሉ?",
+            "የአዲስ ኪዳን መጻሕፍት": "በግዕገ አማርኛ ከአዲስ ኪዳን ምን ማንበብ ይፈልጋሉ?",
+        },
+    },
+    "lang_geez_learn": {
+        "description": "ማንበብ የሚፈልጉ የግእገ ቋንቋ መማሪያ መጽሐፍ ይምረጡ",
+        "cats": {"የግዕገ ቋንቋ መማሪያ": "የግዕገ ቋንቋ ማማሪያ"},
+    },
+    "lang_amh": {
+        "description": "በአማርኛ መጽሐፍ ምን ማንበብ ይፈልጋሉ?",
+        "cats": {
+            "ህግና ስርእት": "የህግና ስርእት መጽሐፍ ይምረጡ",
+            "ታሪክ": "ከታሪክ መጽሐፍ ይምረጡ",
+            "ድርሳን ተአምር ገድላት": "ድርሳን፣ ተአምር እና ገድላት ይምረጡ",
+            "ክርስቲያናዊ ስነምግባር": "የክርስቲያናዊ ስነምግባር መጽሐፍ ይምረጡ",
+            "የአዲስ ኪዳን መጽሐፍት": "የአዲስ ኪዳን መፍሐፍት ይምረጡ",
+        },
+    },
+    "lang_en": {
+        "description": "Choose a category of English Orthodox spiritual books.",
+        "cats": {
+            "Law & Order": "Law & Order",
+            "History & Discourse": "History & Discourse",
+            "Christian Ethics": "Christian Ethics",
+            "Bible Study & Passages": "Bible Study & Passages",
+            "Theology & Dogma": "Theology & Dogma",
+        },
+    },
+}
 
-def build_path_map(node, current_path=()):
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if key == "books":
-                continue
-            new_path = current_path + (key,)
-            path_str = " > ".join(new_path)
-            if path_str not in PATH_MAP:
-                idx = str(len(PATH_MAP))
-                PATH_MAP[path_str] = idx
-                REVERSE_PATH_MAP[idx] = new_path
-            build_path_map(value, new_path)
+SEED_BOOKS = [
+    ("ፍትሐ ነገሥት ንባቡና ትርጓሜው", "lang_geez", "ህግና ስርአት", "DUMMY_GA_LAW_01"),
+    ("የቤተ ክርስቲያን ሕግና ሥርዓት", "lang_amh", "ህግና ስርአት", "DUMMY_AMH_LAW_01"),
+    ("የሥርዓተ ቅዳሴ ማብራሪያ", "lang_amh", "ህግና ስርአት", "DUMMY_AMH_LAW_02"),
+    ("የክርስቲያን ሕይወትና ሥርዓት", "lang_amh", "ህግና ስርአት", "DUMMY_AMH_LAW_03"),
+    ("ክርስቲያናዊ ሥነ ምግባር", "lang_amh", "ክርስቲያናዊ ስነምግባር", "DUMMY_AMH_ETH_01"),
+    ("የሕይወት ጎዳና", "lang_amh", "ክርስቲያናዊ ስነምግባር", "DUMMY_AMH_ETH_02"),
+    ("የበጎ አድራጎት ትምህርት", "lang_amh", "ክርስቲያናዊ ስነምግባር", "DUMMY_AMH_ETH_03"),
+    ("የትህትናና የፍቅር ሕይወት", "lang_amh", "ክርስቲያናዊ ስነምግባር", "DUMMY_AMH_ETH_04"),
+    ("የቤተሰብ ክርስቲያናዊ መመሪያ", "lang_amh", "ክርስቲያናዊ ስነምግባር", "DUMMY_AMH_ETH_05"),
+]
 
-build_path_map(MENU_STRUCTURE)
+for i, category in enumerate(["Law & Order", "History & Discourse", "Christian Ethics", "Bible Study & Passages", "Theology & Dogma"], 1):
+    for j in range(1, 6):
+        SEED_BOOKS.append((f"{category} Sample {j}", "lang_en", category, f"DUMMY_EN_{i}_{j:02d}"))
 
-def get_node_by_path(path_tuple):
-    curr = MENU_STRUCTURE
-    for step in path_tuple:
-        curr = curr[step]
-    return curr
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
-# ==========================================
-# 4. OCR HELPER
-# ==========================================
+class DB:
+    def __init__(self):
+        self.pg = bool(DATABASE_URL and POSTGRES_AVAILABLE)
+        if not self.pg:
+            Path(SQLITE_PATH).parent.mkdir(parents=True, exist_ok=True)
+            self.conn = sqlite3.connect(SQLITE_PATH, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
+        else:
+            self.conn = None
+        self.init()
 
-def is_bank_receipt(image_path: str) -> bool:
-    try:
-        text = pytesseract.image_to_string(Image.open(image_path)).lower()
-        keywords = ["cbe", "telebirr", "bank", "transfer", "transaction", "ref", "account", "receipt", "deposited", "ebirr", "boa", "dashen"]
-        return any(k in text for k in keywords)
-    except Exception as e:
-        print(f"OCR Error: {e}")
-        return False
+    def execute(self, sql, params=(), fetch=False, many=False):
+        if self.pg:
+            sql = sql.replace("?", "%s")
+            with psycopg.connect(DATABASE_URL) as c:
+                with c.cursor() as cur:
+                    if many:
+                        cur.executemany(sql, params)
+                    else:
+                        cur.execute(sql, params)
+                    rows = cur.fetchall() if fetch else None
+                c.commit()
+                return rows
+        cur = self.conn.cursor()
+        if many:
+            cur.executemany(sql, params)
+        else:
+            cur.execute(sql, params)
+            rows = cur.fetchall() if fetch else None
+        self.conn.commit()
+        return rows
 
-def get_book_by_id(data, book_id):
-    if isinstance(data, dict):
-        if "books" in data:
-            for b in data["books"]:
-                if b.get("id") == book_id:
-                    return b
-        for k, v in data.items():
-            if k != "books":
-                res = get_book_by_id(v, book_id)
-                if res:
-                    return res
-    return None
+    def init(self):
+        id_books = "SERIAL PRIMARY KEY" if self.pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        id_receipts = "SERIAL PRIMARY KEY" if self.pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        self.execute("CREATE TABLE IF NOT EXISTS users( user_id BIGINT PRIMARY KEY, username TEXT, is_paid INTEGER DEFAULT 0, registration_date TEXT, referred_by BIGINT, last_seen TEXT)")
+        self.execute(f"CREATE TABLE IF NOT EXISTS books( id {id_books}, title TEXT NOT NULL, language TEXT NOT NULL, category TEXT NOT NULL, file_id TEXT, file_key TEXT UNIQUE, created_at TEXT, active INTEGER DEFAULT 1)")
+        self.execute(f"CREATE TABLE IF NOT EXISTS receipts( id {id_receipts}, user_id BIGINT, file_id TEXT, file_type TEXT, status TEXT DEFAULT 'pending', created_at TEXT, reviewed_at TEXT)")
+        self.execute("CREATE TABLE IF NOT EXISTS progress( user_id BIGINT, book_id INTEGER, page INTEGER DEFAULT 0, updated_at TEXT, PRIMARY KEY(user_id, book_id))")
+        self.execute("CREATE TABLE IF NOT EXISTS referrals( referrer_id BIGINT, referred_id BIGINT UNIQUE, created_at TEXT)")
+        self.execute("CREATE TABLE IF NOT EXISTS bookmarks( user_id BIGINT, book_id INTEGER, page INTEGER, created_at TEXT, PRIMARY KEY(user_id, book_id, page))")
+        for title, lang, cat, key in SEED_BOOKS:
+            try:
+                self.execute(
+                    "INSERT INTO books(title, language, category, file_id, file_key, created_at) VALUES(?,?,?,?,?,?)",
+                    (title, lang, cat, None, key, now_iso()),
+                )
+            except Exception:
+                pass
 
-# ==========================================
-# 5. USER HANDLERS & NAVIGATION LOGIC
-# ==========================================
+    def upsert_user(self, user_id, username, referred_by=None):
+        existing = self.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,), True)
+        if existing:
+            self.execute("UPDATE users SET username=?, last_seen=? WHERE user_id=?", (username, now_iso(), user_id))
+        else:
+            self.execute(
+                "INSERT INTO users(user_id,username,is_paid,registration_date,referred_by,last_seen) VALUES(?,?,?,?,?,?)",
+                (user_id, username, 0, now_iso(), referred_by, now_iso()),
+            )
+        if referred_by and referred_by != user_id:
+            try:
+                self.execute("INSERT INTO referrals(referrer_id,referred_id,created_at) VALUES(?,?,?)", (referred_by, user_id, now_iso()))
+            except Exception:
+                pass
+
+    def is_paid(self, user_id):
+        if user_id == ADMIN_USER_ID:
+            return True
+        rows = self.execute("SELECT is_paid FROM users WHERE user_id=?", (user_id,), True)
+        return bool(rows and rows[0][0])
+
+    def set_paid(self, user_id, paid=True):
+        self.execute("UPDATE users SET is_paid=? WHERE user_id=?", (1 if paid else 0, user_id))
+
+    def add_receipt(self, user_id, file_id, file_type):
+        self.execute("INSERT INTO receipts(user_id, file_id, file_type, created_at) VALUES(?,?,?,?)", (user_id, file_id, file_type, now_iso()))
+        rows = self.execute("SELECT id FROM receipts WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,), True)
+        return rows[0][0]
+
+    def get_receipt(self, rid):
+        rows = self.execute("SELECT id, user_id, file_id, file_type, status FROM receipts WHERE id=?", (rid,), True)
+        return rows[0] if rows else None
+
+    def review_receipt(self, rid, status):
+        self.execute("UPDATE receipts SET status=?, reviewed_at=? WHERE id=?", (status, now_iso(), rid))
+
+    def books(self, language, category):
+        return self.execute("SELECT id,title,file_id,file_key FROM books WHERE language=? AND category=? AND active=1 ORDER BY title", (language, category), True)
+
+    def book(self, book_id):
+        rows = self.execute("SELECT id,title,language,category,file_id,file_key FROM books WHERE id=?", (book_id,), True)
+        return rows[0] if rows else None
+
+    def all_books(self):
+        return self.execute("SELECT id,title,language,category,file_id,file_key FROM books WHERE active=1", (), True)
+
+    def add_book(self, title, language, category, file_id):
+        key = f"BOOK_{abs(hash((title, language, category, file_id)) % 10**12)}"
+        self.execute("INSERT INTO books(title,language,category,file_id,file_key,created_at) VALUES(?,?,?,?,?,?)", (title, language, category, file_id, key, now_iso()))
+
+    def all_users(self):
+        return self.execute("SELECT user_id FROM users", (), True)
+
+    def set_progress(self, user_id, book_id, page):
+        if self.pg:
+            self.execute("INSERT INTO progress(user_id,book_id,page,updated_at) VALUES(?,?,?,?) ON CONFLICT(user_id,book_id) DO UPDATE SET page=EXCLUDED.page,updated_at=EXCLUDED.updated_at", (user_id, book_id, page, now_iso()))
+        else:
+            self.execute("INSERT INTO progress(user_id,book_id,page,updated_at) VALUES(?,?,?,?) ON CONFLICT(user_id,book_id) DO UPDATE SET page=excluded.page,updated_at=excluded.updated_at", (user_id, book_id, page, now_iso()))
+
+    def get_progress(self, user_id, book_id):
+        rows = self.execute("SELECT page,updated_at FROM progress WHERE user_id=? AND book_id=?", (user_id, book_id), True)
+        return rows[0] if rows else None
+
+    def add_bookmark(self, user_id, book_id, page):
+        try:
+            self.execute("INSERT INTO bookmarks(user_id,book_id,page,created_at) VALUES(?,?,?,?)", (user_id, book_id, page, now_iso()))
+            return True
+        except Exception:
+            return False
+
+    def get_bookmarks(self, user_id, book_id):
+        return self.execute("SELECT page,created_at FROM bookmarks WHERE user_id=? AND book_id=? ORDER BY page", (user_id, book_id), True)
+
+db = DB()
+
+def main_keyboard():
+    return ReplyKeyboardMarkup([["📚 መጽሐፍት", "🔍 መጽሐፍ ፈልግ"], ["📞 Contact Me", "💬 Feedback"]], resize_keyboard=True)
+
+def language_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("በግዕዝ", callback_data="lang_geez"), InlineKeyboardButton("በግዕዝ አማርኛ", callback_data="lang_geez_amh")],
+        [InlineKeyboardButton("የግዕዝ ቋንቋ መማሪያ", callback_data="lang_geez_learn")],
+        [InlineKeyboardButton("በአማርኛ", callback_data="lang_amh"), InlineKeyboardButton("በእንግሊዝ", callback_data="lang_en")],
+    ])
+
+async def retry_send(action, attempts=5):
+    delay = 1
+    for _ in range(attempts):
+        try:
+            return await action()
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+        except (NetworkError, TimedOut):
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 16)
+    raise RuntimeError("Telegram delivery failed after retries")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not is_user_approved(user_id):
-        msg = (
-            "⚠️ አገልግሎቱን ለማግኘት አስቀድመው የባንክ ደረሰኝ (Bank Receipt) መላክ አለብዎት።\n"
-            "እባክዎን የከፈሉበትን ደረሰኝ ፎቶ አሁኑኑ ይላኩ።\n\n"
-            "⚠️ To access the books, please upload your Bank Receipt photo first."
-        )
-        await update.message.reply_text(msg)
-        return
-
-    keyboard = []
-    for lang in MENU_STRUCTURE.keys():
-        idx = PATH_MAP[" > ".join((lang,))]
-        keyboard.append([InlineKeyboardButton(lang, callback_data=f"n|{idx}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("📚 **መንፈሳዊ መጽሐፍት**\nእባክዎን ቋንቋ ወይም ክፍል ይምረጡ / Choose section:", reply_markup=reply_markup, parse_mode="Markdown")
-
-async def handle_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-
-    if data.startswith("book|"):
-        book_id = data.split("|")[1]
-        book = get_book_by_id(MENU_STRUCTURE, book_id)
-        if book and book.get("file_id") and book["file_id"] != "FILE_ID_HERE":
-            await context.bot.send_document(
-                chat_id=query.message.chat_id,
-                document=book["file_id"],
-                caption=f"📖 **{book['title']}**"
-            )
-        else:
-            await query.message.reply_text("⚠️ ፋይሉ ገና ወደ ቦቱ አልተጫነም (File ID is missing).")
-        return
-
-    if data.startswith("n|"):
-        idx = data.split("|")[1]
-        path_tuple = REVERSE_PATH_MAP[idx]
-        curr = get_node_by_path(path_tuple)
-
-        parent_path = path_tuple[:-1]
-        if parent_path:
-            parent_path_str = " > ".join(parent_path)
-            parent_idx = PATH_MAP[parent_path_str]
-            back_cb = f"n|{parent_idx}"
-        else:
-            back_cb = "main"
-
-        if isinstance(curr, dict) and "books" in curr:
-            books = curr["books"]
-            if not books:
-                is_english = path_tuple[0] == "🇬🇧 English"
-                empty_msg = "(No books added to this section yet)" if is_english else "⚠️ በዚህ ክፍል እስካሁን የገቡ መጽሐፍት የሉም።"
-                kb = [[InlineKeyboardButton("🔙 ወደ ኋላ (Back)", callback_data=back_cb)]]
-                await query.edit_message_text(text=empty_msg, reply_markup=InlineKeyboardMarkup(kb))
-                return
-            
-            keyboard = []
-            for b in books:
-                keyboard.append([InlineKeyboardButton(f"📖 {b['title']}", callback_data=f"book|{b['id']}")])
-            
-            keyboard.append([InlineKeyboardButton("🔙 ወደ ኋላ (Back)", callback_data=back_cb)])
-            
-            await query.edit_message_text(
-                text=f"📚 **{path_tuple[-1]}** - የሚፈልጉትን መጽሐፍ ይምረጡ፡",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-            return
-
-        if isinstance(curr, dict):
-            keyboard = []
-            for sub_key in curr.keys():
-                new_path_str = " > ".join(path_tuple + (sub_key,))
-                sub_idx = PATH_MAP[new_path_str]
-                keyboard.append([InlineKeyboardButton(sub_key, callback_data=f"n|{sub_idx}")])
-            
-            keyboard.append([InlineKeyboardButton("🔙 ወደ ኋላ (Back)", callback_data=back_cb)])
-            
-            await query.edit_message_text(
-                text=f"📂 **{path_tuple[-1]}** - ክፍል ይምረጡ፡",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-            return
-
-    if data == "main":
-        keyboard = []
-        for lang in MENU_STRUCTURE.keys():
-            idx = PATH_MAP[" > ".join((lang,))]
-            keyboard.append([InlineKeyboardButton(lang, callback_data=f"n|{idx}")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text("📚 **መንፈሳዊ መጽሐፍት**\nእባክዎን ቋንቋ ወይም ክፍል ይምረጡ / Choose section:", reply_markup=reply_markup, parse_mode="Markdown")
-
-async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    photo_file = await update.message.photo[-1].get_file()
-    file_path = f"receipt_{user.id}.jpg"
-    await photo_file.download_to_drive(file_path)
+    ref = None
+    if context.args:
+        m = re.fullmatch(r"REF_(\d+)", context.args[0])
+        if m:
+            ref = int(m.group(1))
+    db.upsert_user(user.id, user.username or "", ref)
+    await update.message.reply_text("እንኳን ወደ ታላቁ ዲጂታል መጽሃፍት ቦት በሰላም መጡ!", reply_markup=main_keyboard())
 
-    if not is_bank_receipt(file_path):
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-        
-        warning_msg = (
-            "❌ ይህ የባንክ ደረሰኝ (Bank Receipt) አይደለም! እባክዎን ትክክለኛ የባንክ ደረሰኝ ያስገቡ።\n\n"
-            "❌ This is NOT a valid bank receipt! Please upload a correct bank receipt."
-        )
-        await context.bot.send_message(chat_id=user.id, text=warning_msg)
-        if os.path.exists(file_path):
-            os.remove(file_path)
+async def books_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("እባኮን በምን ቋንቋ መጽሐፍ ማንበብ ይፈልጋሉ?", reply_markup=language_keyboard())
+
+async def language_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    lang = q.data
+    context.user_data["language"] = lang
+    cfg = CATEGORIES[lang]
+    buttons = [[InlineKeyboardButton(name, callback_data=f"cat|{lang}|{name}") for name in list(cfg["cats"].keys())][i:i+2] for i in range(0, len(cfg["cats"]), 2)]
+    await q.edit_message_text(cfg["description"], reply_markup=InlineKeyboardMarkup(buttons))
+
+async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    _, lang, category = q.data.split("|", 2)
+    rows = db.books(lang, category)
+    if not rows:
+        await q.edit_message_text("በዚህ ምድብ ምንም መጽሐፍ የለም። እባኮን ሌላ ምድብ ይምረጡ።")
         return
+    buttons = [[InlineKeyboardButton(r[1], callback_data=f"book|{r[0]}") for r in rows]]
+    await q.edit_message_text("እባኮን መጽሐፉን ይምረጡ።", reply_markup=InlineKeyboardMarkup(buttons))
 
-    admin_keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ Approve", callback_data=f"approve_{user.id}"),
-            InlineKeyboardButton("❌ Reject", callback_data=f"reject_{user.id}")
-        ]
-    ])
-    
-    username_str = f"@{user.username}" if user.username else "የለውም"
-    
-    with open(file_path, 'rb') as photo:
-        await context.bot.send_photo(
-            chat_id=ADMIN_CHAT_ID,
-            photo=photo,
-            caption=(
-                f"📥 **አዲስ የክፍያ ደረሰኝ ተልኳል**\n\n"
-                f"👤 **ተጠቃሚ:** {user.full_name}\n"
-                f"🆔 **ID:** `{user.id}`\n"
-                f"🔗 **Username:** {username_str}"
-            ),
-            reply_markup=admin_keyboard,
-            parse_mode="Markdown"
-        )
+async def book_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    _, book_id = q.data.split("|", 1)
+    book = db.book(int(book_id))
+    if not book:
+        await q.edit_message_text("መጽሐፍ አልተገኘም።")
+        return
+    context.user_data["selected_book"] = int(book_id)
+    buttons = [[InlineKeyboardButton("👁️ Preview", callback_data=f"preview|{book_id}")]]
+    if db.is_paid(q.from_user.id):
+        buttons.append([InlineKeyboardButton("📖 ሙሉ መጽሐፍ አንብብ", callback_data=f"read|{book_id}")])
+    else:
+        buttons.append([InlineKeyboardButton("💳 ክፍያ ለማድረግ", callback_data="send_receipt")])
+    await q.edit_message_text(f"<b>{book[1]}</b>", parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
 
-    wait_msg = (
-        "✅ ደረሰኝዎ ደርሶናል! የቦቱ ባለቤት አረጋግጦ (Approve አድርጎ) እስኪያጠናቅቅ ድረስ በአክብሮት እንድትጠብቁ እንጠይቃለን።\n\n"
-        "✅ We have received your receipt! Please wait respectfully until the admin approves your payment."
+async def send_full_book(chat_id, book, bot):
+    if not book[4]:
+        await bot.send_message(chat_id, "ይህ መጽሐፍ በስርአቱ ውስጥ አላለፈም። እባኮን አስተዳዳሪውን ያግኙ።")
+        return
+    await retry_send(lambda: bot.send_document(chat_id, document=book[4], protect_content=True, caption=f"📖 {book[1]}"))
+
+async def read_or_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    _, book_id = q.data.split("|", 1)
+    book = db.book(int(book_id))
+    if not book:
+        await q.edit_message_text("መጽሐፍ አልተገኘም።")
+        return
+    if not db.is_paid(q.from_user.id):
+        await q.message.reply_text(PAYMENT_TEXT, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📤 ሪሲት ላክ", callback_data="send_receipt")], [InlineKeyboardButton("📞 Contact Me", callback_data="contact")]]))
+        return
+    await send_full_book(q.message.chat_id, book, context.bot)
+
+async def preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    _, book_id = q.data.split("|", 1)
+    book = db.book(int(book_id))
+    if not book:
+        return
+    if not book[4]:
+        await q.message.reply_text("Preview: ይህ የዲሞ መጽሐፍ መዝገብ ነው። PDF ከተጫነ በኋላ የመጀመሪያዎቹ 3 ገጾች ይላካሉ።")
+        return
+    if fitz is None:
+        await q.message.reply_text("Preview ለማመንጨት PyMuPDF አልተጫነም።")
+        return
+    tg_file = await context.bot.get_file(book[4])
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "book.pdf"
+        out = Path(td) / "preview.pdf"
+        await tg_file.download_to_drive(custom_path=str(src))
+        doc = fitz.open(src)
+        preview_doc = fitz.open()
+        for i in range(min(3, len(doc))):
+            preview_doc.insert_pdf(doc, from_page=i, to_page=i)
+        preview_doc.save(out)
+        preview_doc.close()
+        doc.close()
+        with open(out, "rb") as f:
+            await q.message.reply_document(f, caption=f"📖 Preview: {book[1]}", protect_content=True)
+
+async def search_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔍 የመጽሐፉን ስም ወይም ቁልፍ ቃል ይጻፉ።")
+    return SEARCH
+
+async def do_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
+    rows = db.all_books()
+    titles = [r[1] for r in rows]
+    exact = [r for r in rows if query.casefold() == r[1].casefold()]
+    matches = exact or [r for r, score, _ in process.extract(query, rows, scorer=lambda q, r: fuzz.WRatio(q, r[1]), limit=8) if score >= 45]
+    if not matches:
+        await update.message.reply_text("ምንም ተመሳሳይ መጽሐፍ አልተገኘም።")
+        return ConversationHandler.END
+    buttons = [[InlineKeyboardButton(r[1], callback_data=f"book|{r[0]}")] for r in matches]
+    await update.message.reply_text("የተገኙ መጽሐፍት፦", reply_markup=InlineKeyboardMarkup(buttons))
+    return ConversationHandler.END
+
+async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = f"📞 Contact Me\nTelegram: {TELEGRAM_CONTACT}\nEmail: {EMAIL}"
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(text)
+    else:
+        await update.message.reply_text(text)
+
+async def feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"💬 አስተያየትዎን ያድርሱን፦\nለማንኛውም ጥያቄ፣ አስተያየት ወይም ተጨማሪ መጽሐፍ ጥቆማ ያግኙን፦\n"
+        f"Telegram: {TELEGRAM_CONTACT}\nEmail: {EMAIL}"
     )
-    await update.message.reply_text(wait_msg)
-    
-    if os.path.exists(file_path):
-        os.remove(file_path)
 
-# ==========================================
-# 6. ADMIN HANDLERS (Approve / Reject / Broadcast)
-# ==========================================
+async def receipt_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if q:
+        await q.answer()
+        await q.message.reply_text("🧾 እባክዎ የባንክ ሪሲቱን ፎቶ ወይም PDF ሰነድ ይላኩ።")
+    else:
+        await update.message.reply_text("🧾 የባንክ ሪሲቱን ፎቶ ወይም PDF ሰነድ ይላኩ።")
+    return RECEIPT
 
-async def handle_admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+async def receipt_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if msg.photo:
+        file_id = msg.photo[-1].file_id
+        typ = "photo"
+    elif msg.document:
+        file_id = msg.document.file_id
+        typ = "document"
+    else:
+        await msg.reply_text("እባክዎ ፎቶ ወይም PDF/document ይላኩ።")
+        return RECEIPT
+    rid = db.add_receipt(msg.from_user.id, file_id, typ)
+    admin_text = f"🧾 New payment receipt\nReceipt ID: {rid}\nUser ID: {msg.from_user.id}\nUsername: @{msg.from_user.username or 'none'}"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ APPROVE", callback_data=f"approve|{rid}"), InlineKeyboardButton("❌ REJECT", callback_data=f"reject|{rid}")]
+    ])
+    if typ == "photo":
+        await context.bot.send_photo(ADMIN_USER_ID, file_id, caption=admin_text, reply_markup=kb)
+    else:
+        await context.bot.send_document(ADMIN_USER_ID, file_id, caption=admin_text, reply_markup=kb)
+    await msg.reply_text("ሪሲቱ ተቀብሏል። አስተዳዳሪው ካረጋገጠ በኋላ መጽሐፍቱን ሙሉ በሙሉ ማንበብ ይችላሉ።")
+    return ConversationHandler.END
 
-    if query.from_user.id != ADMIN_CHAT_ID:
+async def review_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if q.from_user.id != ADMIN_USER_ID:
         return
-
-    data = query.data
-    action, user_id_str = data.split("_")
-    user_id = int(user_id_str)
-
-    if action == "approve":
-        user_info = await context.bot.get_chat(user_id)
-        add_approved_user(user_id, user_info.username or "", user_info.full_name or "")
-        
-        user_msg = (
-            "🎉 ክፍያዎ በቦቱ ባለቤት ጸድቋል (Approve ተደርጓል)! አሁን ቦቱን ሙሉ ለሙሉ መጠቀም ይችላሉ።\n"
-            "ወደፊት አዳዲስ መጽሐፍት ሲጨመሩ ያለምንም ተጨማሪ ክፍያ ማግኘት ይችላሉ።\n"
-            "ለመጀመር /start ን ይጫኑ።\n\n"
-            "🎉 Your payment has been approved! Press /start to begin using the bot."
-        )
-        await context.bot.send_message(chat_id=user_id, text=user_msg)
-        await query.edit_message_caption(caption=query.message.caption + "\n\n✅ **APPROVED (ተቀብለውታል)**")
-
-    elif action == "reject":
-        user_msg = (
-            "❌ የቀረበው ደረሰኝ ውድቅ ተደርጓል (Rejected)።\n"
-            "እባክዎን ትክክለኛ የባንክ ደረሰኝ እንደገና ይላኩ።\n\n"
-            "❌ Your receipt was rejected. Please upload a valid bank receipt again."
-        )
-        await context.bot.send_message(chat_id=user_id, text=user_msg)
-        await query.edit_message_caption(caption=query.message.caption + "\n\n❌ **REJECTED (ውድቅ ተደርጓል)**")
-
-async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID:
+    action, rid_s = q.data.split("|", 1)
+    rid = int(rid_s)
+    row = db.get_receipt(rid)
+    if not row:
+        await q.edit_message_caption(caption="Receipt not found.")
         return
+    approved = action == "approve"
+    db.review_receipt(rid, "approved" if approved else "rejected")
+    if approved:
+        db.set_paid(row[1], True)
+        await context.bot.send_message(row[1], "✅ ክፍያዎ ተረጋግጧል። አሁን ሁሉንም መጽሐፍት መጠቀም ይችላሉ።")
+    else:
+        await context.bot.send_message(row[1], "❌ ሪሲቱ አልተረጋገጠም። እባክዎ ትክክለኛ ሪሲት እንደገና ይላኩ።")
+    await q.edit_message_caption(caption=f"Receipt #{rid}: {'APPROVED' if approved else 'REJECTED'}")
 
-    message = " ".join(context.args)
-    if not message:
-        await update.message.reply_text("⚠️ እባክዎን የሚላከውን መልእክት ያስገቡ። ምሳሌ፦ `/broadcast አዲስ መጽሐፍ ተጨምሯል!`")
+async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("Unauthorized.")
         return
+    await update.message.reply_text(
+        "🛠 Admin Panel\n"
+        "/uploadbook — upload a PDF and register it\n"
+        "/broadcast — broadcast a text message\n"
+        "/stats — user/book/payment statistics"
+    )
 
-    users = get_all_approved_users()
-    count = 0
-    for uid in users:
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    users = len(db.all_users())
+    books = len(db.all_books())
+    await update.message.reply_text(f"Users: {users}\nBooks: {books}")
+
+async def upload_book_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return ConversationHandler.END
+    await update.message.reply_text("Send the PDF file now.")
+    return ADMIN_TITLE
+
+async def upload_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID or not update.message.document:
+        await update.message.reply_text("Please send a PDF document.")
+        return ADMIN_TITLE
+    doc = update.message.document
+    if doc.mime_type != "application/pdf" and not (doc.file_name or "").lower().endswith("pdf"):
+        await update.message.reply_text("Only PDF files are accepted.")
+        return ADMIN_TITLE
+    context.user_data["upload_file_id"] = doc.file_id
+    context.user_data["upload_name"] = doc.file_name or "book.pdf"
+    await update.message.reply_text("Now send the book title.")
+    return ADMIN_CATEGORY
+
+async def upload_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["upload_title"] = update.message.text.strip()
+    await update.message.reply_text("Send category path as:\nLANGUAGE | CATEGORY\n\nExample: lang_en | Theology & Dogma")
+    return ADMIN_CATEGORY + 1
+
+async def upload_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw = update.message.text.strip()
+    if "|" not in raw:
+        await update.message.reply_text("Format must be LANGUAGE | CATEGORY")
+        return ADMIN_CATEGORY + 1
+    lang, category = [x.strip() for x in raw.split("|", 1)]
+    if lang not in CATEGORIES or category not in CATEGORIES[lang]["cats"]:
+        await update.message.reply_text("Invalid language/category path. Try again.")
+        return ADMIN_CATEGORY + 1
+    db.add_book(context.user_data["upload_title"], lang, category, context.user_data["upload_file_id"])
+    await update.message.reply_text("✅ Book registered and added dynamically to the category UI.")
+    for row in db.all_users():
+        uid = row[0]
         try:
-            await context.bot.send_message(chat_id=uid, text=f"📢 **ማሳወቂያ / Notification:**\n\n{message}")
-            count += 1
+            await retry_send(lambda uid=uid: context.bot.send_message(uid, "🆕 አዲስ መጽሐፍ ተጨምሯል!"))
         except Exception:
-            pass
+            log.warning("Broadcast failed for user %s", uid)
+    return ConversationHandler.END
 
-    await update.message.reply_text(f"✅ መልእክቱ ለ {count} ተጠቃሚዎች ተልኳል።")
+async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    me = await context.bot.get_me()
+    link = f"https://t.me/{me.username}?start=REF_{update.effective_user.id}"
+    await update.message.reply_text(f"🔗 የማጋራት ሊንክዎ፦\n{link}")
 
-async def get_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID:
+async def generic_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == "📚 መጽሐፍት":
+        await books_menu(update, context)
+    elif text == "🔍 መጽሐፍ ፈልግ":
+        await search_start(update, context)
+    elif text == "📞 Contact Me":
+        await contact(update, context)
+    elif text == "💬 Feedback":
+        await feedback(update, context)
+
+async def save_progress_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2:
+        await update.message.reply_text("Usage: /progress BOOK_ID PAGE")
         return
-    users = get_all_approved_users()
-    await update.message.reply_text(f"📊 **የተመዘገቡ የከፈሉ ተጠቃሚዎች ብዛት፦** {len(users)}")
-
-async def manual_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID or not context.args:
+    try:
+        book_id, page = int(context.args[0]), int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("BOOK_ID and PAGE must be numbers.")
         return
-    target_id = int(context.args[0])
-    add_approved_user(target_id, "", "Manual Approved")
-    await update.message.reply_text(f"✅ ተጠቃሚ ID {target_id} ጸድቋል።")
-
-async def manual_revoke(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID or not context.args:
+    if not db.book(book_id):
+        await update.message.reply_text("Book not found.")
         return
-    target_id = int(context.args[0])
-    remove_approved_user(target_id)
-    await update.message.reply_text(f"🚫 ተጠቃሚ ID {target_id} ፈቃዱ ተነስቷል።")
+    db.set_progress(update.effective_user.id, book_id, max(0, page))
+    await update.message.reply_text(f"Reading progress saved: page {max(0, page)}")
 
-# ==========================================
-# 7. MAIN RUNNER
-# ==========================================
+async def add_bookmark_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 2:
+        await update.message.reply_text("Usage: /bookmark BOOK_ID PAGE")
+        return
+    try:
+        book_id, page = int(context.args[0]), int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("BOOK_ID and PAGE must be numbers.")
+        return
+    if not db.book(book_id):
+        await update.message.reply_text("Book not found.")
+        return
+    if db.add_bookmark(update.effective_user.id, book_id, max(0, page)):
+        await update.message.reply_text("Bookmark saved.")
+    else:
+        await update.message.reply_text("That bookmark already exists.")
 
-def main():
-    init_db()
-    
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+async def show_progress_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) != 1:
+        await update.message.reply_text("Usage: /progresses BOOK_ID")
+        return
+    try:
+        book_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("BOOK_ID must be a number.")
+        return
+    book = db.book(book_id)
+    if not book:
+        await update.message.reply_text("Book not found.")
+        return
+    prog = db.get_progress(update.effective_user.id, book_id)
+    marks = db.get_bookmarks(update.effective_user.id, book_id)
+    page = prog[0] if prog else 0
+    mark_text = ", ".join(str(r[0]) for r in marks) if marks else "none"
+    await update.message.reply_text(
+        f"📖 {book[1]}\nProgress: page {page}\nBookmarks: {mark_text}"
+    )
 
-    # Commands
+async def health(request):
+    return web.json_response({"status": "ok", "service": "OrthodoxSpiritualBooksBot"})
+
+async def run_health_server():
+    app = web.Application()
+    app.router.add_get("/health", health)
+    app.router.add_get("/ping", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    log.info("Health server listening on %s", PORT)
+    while True:
+        await asyncio.sleep(3600)
+
+async def post_init(application):
+    asyncio.create_task(run_health_server())
+
+def build_app():
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+
+    search_conv = ConversationHandler(
+        entry_points=[CommandHandler("search", search_start), MessageHandler(filters.Regex("^🔍 መጽሐፍ ፈልግ$"), search_start)],
+        states={SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, do_search)]},
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+    )
+
+    receipt_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(receipt_start, pattern="^send_receipt$")],
+        states={RECEIPT: [MessageHandler(filters.PHOTO | filters.Document.ALL, receipt_received)]},
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+    )
+
+    upload_conv = ConversationHandler(
+        entry_points=[CommandHandler("uploadbook", upload_book_start)],
+        states={
+            ADMIN_TITLE: [MessageHandler(filters.Document.PDF | filters.Document.ALL, upload_pdf)],
+            ADMIN_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_title)],
+            ADMIN_CATEGORY + 1: [MessageHandler(filters.TEXT & ~filters.COMMAND, upload_category)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u, c: ConversationHandler.END)],
+    )
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("broadcast", broadcast_message))
-    app.add_handler(CommandHandler("stats", get_stats))
-    app.add_handler(CommandHandler("approve_user", manual_approve))
-    app.add_handler(CommandHandler("revoke_user", manual_revoke))
-    
-    # Callback Handlers
-    app.add_handler(CallbackQueryHandler(handle_admin_decision, pattern="^(approve|reject)_"))
-    app.add_handler(CallbackQueryHandler(handle_navigation))
-    
-    # Receipts Handler
-    app.add_handler(MessageHandler(filters.PHOTO, handle_receipt))
-
-    print("🚀 ቦቱ በስኬት ስራ ጀምሯል...")
-    app.run_polling()
+    app.add_handler(CommandHandler("admin", admin_cmd))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("referral", referral))
+    app.add_handler(CommandHandler("progress", save_progress_cmd))
+    app.add_handler(CommandHandler("bookmark", add_bookmark_cmd))
+    app.add_handler(CommandHandler("progresses", show_progress_cmd))
+    app.add_handler(search_conv)
+    app.add_handler(receipt_conv)
+    app.add_handler(upload_conv)
+    app.add_handler(CallbackQueryHandler(language_selected, pattern=r"^lang_"))
+    app.add_handler(CallbackQueryHandler(category_selected, pattern=r"^cat\|"))
+    app.add_handler(CallbackQueryHandler(book_selected, pattern=r"^book\|"))
+    app.add_handler(CallbackQueryHandler(preview, pattern=r"^preview\|"))
+    app.add_handler(CallbackQueryHandler(read_or_payment, pattern=r"^read\|"))
+    app.add_handler(CallbackQueryHandler(review_receipt, pattern=r"^(approve|reject)\|"))
+    app.add_handler(CallbackQueryHandler(contact, pattern=r"^contact$"))
+    app.add_handler(MessageHandler(filters.Regex("^📚 መጽሐፍት$"), books_menu))
+    app.add_handler(MessageHandler(filters.Regex("^📞 Contact Me$"), contact))
+    app.add_handler(MessageHandler(filters.Regex("^💬 Feedback$"), feedback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generic_text))
+    return app
 
 if __name__ == "__main__":
-    main()
+    application = build_app()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)

@@ -1,3 +1,5 @@
-python-telegram-bot
-pytesseract
-Pillow
+python-telegram-bot==22.5
+aiohttp==3.12.15
+rapidfuzz==3.13.0
+PyMuPDF==1.26.4
+psycopg[binary]==3.2.9

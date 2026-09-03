@@ -1,9 +1,19 @@
 services:
-  - type: web
-    name: telegram-book-bot
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
-    envVars:
-      - key: PORT
-        value: 10000
+- type: web
+  name: orthodox-spiritual-books-bot
+  runtime: python
+  buildCommand: pip install -r requirements.txt
+  startCommand: python main.py
+  envVars:
+    - key: BOT_TOKEN
+      sync: false
+    - key: DATABASE_URL
+      sync: false
+    - key: BOT_USERNAME
+      value: OrthodoxSpiritualBooksBot
+    - key: SQLITE_PATH
+      value: /var/data/bot.db
+  disk:
+    - name: orthodox-bot-data
+      mountPath: /var/data
+      sizeGB: 1
