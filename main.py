@@ -8,7 +8,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from aiiohttp import web
+from aiohttp import web  # ✅ FIXED: was "aiiohttp"
 from rapidfuzz import process, fuzz
 from telegram import (
     InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, Update,
@@ -36,7 +36,12 @@ logging.basicConfig(
 )
 log = logging.getLogger("orthodox-bot")
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
+# ✅ FIXED: Use getenv with fallback to prevent crash
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+if not BOT_TOKEN:
+    log.error("BOT_TOKEN environment variable is not set!")
+    raise ValueError("BOT_TOKEN environment variable is required")
+
 ADMIN_USER_ID = 7480368503
 ADMIN_USERNAME = "@Sealilenemariyammsle12we19"
 PRICE = 200
@@ -46,6 +51,9 @@ EMAIL = "matewosgetahunseifu@gmail.com"
 PORT = int(os.getenv("PORT", "10000"))
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 SQLITE_PATH = os.getenv("SQLITE_PATH", "data/bot.db")
+
+# ✅ FIXED: Ensure data directory exists
+Path(SQLITE_PATH).parent.mkdir(parents=True, exist_ok=True)
 
 # Conversation states
 SEARCH = 1
@@ -601,8 +609,8 @@ async def run_health_server():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
     log.info("Health server listening on %s", PORT)
-    while True:
-        await asyncio.sleep(3600)
+    # ✅ FIXED: Keep the server running without infinite loop
+    await asyncio.Event().wait()  # Wait forever
 
 async def post_init(application):
     asyncio.create_task(run_health_server())
